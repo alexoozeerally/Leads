@@ -1,0 +1,54 @@
+# Brings up the API, the Streamlit dashboard, and Postgres.
+# Usage:  docker compose -f docker/docker-compose.yml up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: leadfinder
+      POSTGRES_PASSWORD: leadfinder
+      POSTGRES_DB: leadfinder
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadfinder"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      ENVIRONMENT: docker
+      DATABASE_URL: postgresql+asyncpg://leadfinder:leadfinder@db:5432/leadfinder
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - screenshots:/app/data/screenshots
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["sh", "-c", "streamlit run app/dashboard/app.py --server.port 8501 --server.address 0.0.0.0"]
+    environment:
+      ENVIRONMENT: docker
+      DATABASE_URL: postgresql+asyncpg://leadfinder:leadfinder@db:5432/leadfinder
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    volumes:
+      - screenshots:/app/data/screenshots
+
+volumes:
+  pgdata:
+  screenshots:
