@@ -46,16 +46,20 @@ class RateLimiter:
 class RobotsCache:
     """Fetches and caches robots.txt rules per host."""
 
-    def __init__(self, user_agent: str, *, respect: bool = True) -> None:
+    def __init__(self, user_agent: str, *, respect: bool = True, verify_tls: bool = True) -> None:
         self._user_agent = user_agent
         self._respect = respect
+        self._verify_tls = verify_tls
         self._cache: dict[str, RobotFileParser | None] = {}
 
     async def _load(self, base: str) -> RobotFileParser | None:
         robots_url = f"{base}/robots.txt"
         try:
             async with httpx.AsyncClient(
-                timeout=10, headers={"User-Agent": self._user_agent}, follow_redirects=True
+                timeout=10,
+                headers={"User-Agent": self._user_agent},
+                follow_redirects=True,
+                verify=self._verify_tls,
             ) as client:
                 resp = await client.get(robots_url)
             parser = RobotFileParser()

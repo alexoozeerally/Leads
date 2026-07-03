@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.agents.auditor import WebsiteAuditor
 from app.agents.base import AuditModule
 from app.agents.llm_client import LLMClient, get_llm_client
 from app.agents.vision import VisionAgent
@@ -67,8 +68,8 @@ class LeadPipeline:
         self._provider = provider or get_provider()
         self._crawler = crawler or WebsiteCrawler()
         client = llm_client or get_llm_client()
-        # Phase 1 runs a single audit module: the vision analyser.
-        self._modules = modules or [VisionAgent(client=client)]
+        # Default audit modules: full technical audit + visual (vision) analysis.
+        self._modules = modules or [WebsiteAuditor(), VisionAgent(client=client)]
 
     async def discover(self, query: DiscoveryQuery) -> list[Business]:
         businesses = await self._provider.search(query)
@@ -85,8 +86,8 @@ class LeadPipeline:
             results[module.name] = result
 
         opportunity = opportunity_from_results(crawl.state, results)
-        audit_id = await self._persist(business, crawl, results, opportunity)
-        notes = results.get("vision", AuditResult(module="vision")).notes
+        notes = self._combined_notes(results)
+        audit_id = await self._persist(business, crawl, results, opportunity, notes)
         return LeadOutcome(
             business=business,
             state=crawl.state,
@@ -95,12 +96,22 @@ class LeadPipeline:
             notes=notes,
         )
 
+    @staticmethod
+    def _combined_notes(results: dict[str, AuditResult]) -> str:
+        parts = []
+        for name in ("auditor", "vision"):
+            r = results.get(name)
+            if r and r.notes:
+                parts.append(r.notes)
+        return "  ".join(parts)
+
     async def _persist(
         self,
         business: Business,
         crawl: CrawlResult,
         results: dict[str, AuditResult],
         opportunity: float,
+        notes: str,
     ) -> int:
         async with session_scope() as session:
             biz_repo = BusinessRepository(session)
@@ -118,7 +129,7 @@ class LeadPipeline:
                 opportunity_score=opportunity,
                 module_results=module_results,
                 crawl_summary=crawl_summary,
-                notes=results.get("vision", AuditResult(module="vision")).notes,
+                notes=notes,
             )
             if crawl.desktop_screenshot:
                 await audit_repo.add_screenshot(audit.id, "desktop", crawl.desktop_screenshot)

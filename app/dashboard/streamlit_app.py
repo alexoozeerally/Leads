@@ -72,7 +72,35 @@ def _render_lead(lead: LeadRow) -> None:
                     col.info("Screenshot file missing.")
         else:
             st.info("No screenshot (no live site to capture).")
+
+    _render_audit_report(lead)
     st.divider()
+
+
+def _render_audit_report(lead: LeadRow) -> None:
+    """Show the full technical + visual audit: every category with its rationale."""
+    auditor = (lead.module_results or {}).get("auditor", {})
+    vision = (lead.module_results or {}).get("vision", {})
+    if not auditor and not vision:
+        return
+    with st.expander("📋 Full audit report (every score has a rationale)"):
+        if auditor.get("scores"):
+            st.markdown("**Technical audit**")
+            for cat, entry in auditor["scores"].items():
+                _render_score_row(cat.replace("_", " ").title(), entry)
+        if vision.get("scores"):
+            st.markdown("**Visual / design audit** _(vision)_")
+            for cat, entry in vision["scores"].items():
+                _render_score_row(cat.replace("_", " ").title(), entry)
+
+
+def _render_score_row(label: str, entry: dict) -> None:
+    value, mx = entry.get("value", 0), entry.get("max", 10)
+    ratio = value / mx if mx else 0
+    colour = "red" if ratio < 0.4 else ("orange" if ratio < 0.7 else "green")
+    st.markdown(
+        f"- **{label}** · :{colour}[{value:.1f}/{mx:.0f}] — {entry.get('explanation', '')}"
+    )
 
 
 def main() -> None:

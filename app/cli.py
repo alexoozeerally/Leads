@@ -45,6 +45,9 @@ async def _run(query: DiscoveryQuery, provider: str | None) -> int:
 async def _run_sample() -> int:
     """End-to-end demo: serve fixture sites locally and audit them for real."""
     settings = get_settings()
+    # The demo serves fixtures over HTTPS with a throwaway self-signed cert, so
+    # trust it (crawler, robots fetch, link checker) for this run only.
+    settings.crawler_verify_tls = False
     provider = get_provider("csv", settings)
     query = DiscoveryQuery(industry="", limit=25)  # empty industry -> all rows
     businesses = await provider.search(query)
@@ -52,7 +55,8 @@ async def _run_sample() -> int:
     # Each business with a website gets its own local host (distinct port), so
     # they stay distinct records — as real businesses on separate domains would.
     with_sites = [b for b in businesses if b.website]
-    with serve_distinct_sites(len(with_sites)) as base_urls:
+    home_files = [b.website.lstrip("/") for b in with_sites]
+    with serve_distinct_sites(home_files) as base_urls:
         for biz, base_url in zip(with_sites, base_urls, strict=True):
             biz.website = f"{base_url}/{biz.website.lstrip('/')}"
         print(

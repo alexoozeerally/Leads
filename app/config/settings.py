@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     )
     crawler_timeout_seconds: float = 30.0
     crawler_respect_robots: bool = True
+    # Verify TLS certificates. True in real use (so invalid-SSL sites are flagged);
+    # set False only for trusted self-signed targets (e.g. the local demo server).
+    crawler_verify_tls: bool = True
     screenshot_dir: str = "./data/screenshots"
     # Path to a pre-installed Chromium (set when Playwright's bundled browser is
     # absent, e.g. this managed environment). None -> use Playwright's default.

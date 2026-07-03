@@ -55,7 +55,9 @@ class WebsiteCrawler:
         self._settings = settings or get_settings()
         self._rate = RateLimiter(self._settings.crawler_rate_limit_per_host)
         self._robots = RobotsCache(
-            self._settings.crawler_user_agent, respect=self._settings.crawler_respect_robots
+            self._settings.crawler_user_agent,
+            respect=self._settings.crawler_respect_robots,
+            verify_tls=self._settings.crawler_verify_tls,
         )
         self._shot_dir = Path(self._settings.screenshot_dir)
         self._shot_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +124,9 @@ class WebsiteCrawler:
                 context = await browser.new_context(
                     user_agent=self._settings.crawler_user_agent,
                     viewport={"width": 1366, "height": 900},
-                    ignore_https_errors=True,  # we detect SSL issues ourselves below
+                    # When verifying TLS, a bad cert surfaces as a navigation
+                    # error and is classified as INVALID_SSL below.
+                    ignore_https_errors=not self._settings.crawler_verify_tls,
                 )
                 page = await context.new_page()
                 try:

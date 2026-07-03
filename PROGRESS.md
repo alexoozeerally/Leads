@@ -151,3 +151,65 @@ Verified here: `run-sample` produced 5 distinct businesses (2 at opportunity
 90.0 — the no-site plumber and under-construction bakery), 5 versioned audits,
 and 8 real screenshots; the dashboard rendered them (screenshot captured during
 build).
+
+---
+
+## Phase 2 — Full technical + visual audit ✅
+
+**Built**
+
+- **`WebsiteAuditor`** (`app/agents/auditor.py`) — the full technical audit,
+  scoring 13 categories, each a `ScoreEntry` with an **evidence-based**
+  explanation citing the observed signal (e.g. "18/24 images have alt text",
+  "checked 4 links — none broken"):
+  security (HTTPS/SSL), mobile-friendliness, navigation, SEO basics, content,
+  accessibility, CTAs, forms, contact methods, trust signals, local SEO,
+  performance indicators, broken links.
+- **`website_signals.py`** — pure, deterministic signal extraction from the
+  crawled HTML (viewport, headings, nav, alt/label coverage, forms, tel/mailto,
+  address/postcode, CTA/trust phrases, structured data, deprecated tags, word
+  count, etc.). HTML in → dataclass out; nothing inferred or invented.
+- **`link_checker.py`** — bounded, polite broken-link checking (HEAD→GET
+  fallback, capped, concurrent, injectable). The auditor checks **internal
+  links only** (documented policy: external sites routinely block bots, so
+  flagging them would be misleading, not evidence of a broken site).
+- **Explicit website-discovery states**: no_site / parked / broken /
+  under_construction / redirect_loop / invalid_ssl each yield a fully-explained
+  zero audit and auto-high opportunity. `crawler_verify_tls` (default **True**)
+  now makes real invalid-SSL sites surface as a navigation error → `INVALID_SSL`.
+- **Vision agent** already covers the visual dimensions the spec lists
+  (modernity, professionalism, typography, whitespace, branding, trust, colour,
+  hierarchy, image quality, consistency + estimated age + first impression).
+- Auditor wired into the pipeline (runs alongside vision); opportunity score now
+  aggregates the full technical + visual audit. Combined auditor+vision notes
+  stored and shown.
+- **Dashboard**: each lead gains an expandable **"Full audit report"** listing
+  every category with its colour-coded score and rationale.
+- **+12 tests** (60 total): signal extraction (good/poor/empty HTML), auditor
+  category scoring, no-site/invalid-SSL handling, internal-only link scoping,
+  broken-link penalty, and the link checker (mocked HTTP). All offline.
+
+**Key decisions**
+
+- **Deterministic technical audit, not an LLM.** Every technical score is
+  computed from observed HTML signals, so it's cheap, reproducible, fully
+  testable offline, and structurally incapable of fabricating evidence. The LLM
+  is reserved for the visual/vision judgement where it adds value.
+- **Faithful HTTPS demo.** `run-sample` now serves fixtures over HTTPS
+  (throwaway self-signed cert via `openssl`) and returns the home page for
+  unknown routes, so the security/navigation/broken-link categories reflect the
+  fixtures' real quality. `crawler_verify_tls=False` is set for that run only
+  (trusting the local self-signed cert); real runs verify TLS.
+
+**How to verify**
+
+```bash
+uv run leadfinder run-sample     # full audit stored for each lead
+uv run pytest -q                 # 60 passed, offline
+uv run ruff check app tests && uv run black --check app tests   # clean
+```
+
+Verified here: the modern dental fixture scored security 10, mobile 10,
+navigation 10, SEO 8, broken-links 10/10; the dated barber fixture scored
+security 0 (HTTP), mobile 1 (no viewport), navigation 2, CTA 1 — each with a
+written rationale. Ranking is faithful (best site = lowest opportunity).
