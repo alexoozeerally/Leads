@@ -17,8 +17,8 @@ Hard rules — follow every one:
 - **No exaggerated or unverifiable claims.** Do not promise rankings, revenue,
   "#1 on Google", or guaranteed results. Do not invent facts about the business.
 - Keep it concise, warm, and specific. UK English. No hype, no jargon, no
-  emojis. Sign off as "the team at [Your Studio]" (a placeholder the sender
-  fills in).
+  emojis. The sender is **Alex from Oozy Digital**, a UK web-design studio — write
+  in the first person as Alex and sign off as "Alex, Oozy Digital".
 - The LinkedIn message must be shorter than the email and even more casual.
 - The follow-up is a brief, polite nudge referencing the first email.
 - The email and the follow-up must each end with a simple **unsubscribe line**

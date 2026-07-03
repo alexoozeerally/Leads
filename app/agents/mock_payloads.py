@@ -84,16 +84,16 @@ def build_email_payload(user: str) -> dict:
         f"Hi,\n\n{compliment}\n\n"
         f"I had a quick look at how {business} shows up online and spotted a couple of "
         f"things that could help:\n\n- {opp1}\n- {opp2}\n\n"
-        f"{cta}\n\nBest wishes,\nthe team at [Your Studio]\n\n{unsubscribe}"
+        f"{cta}\n\nBest wishes,\nAlex, Oozy Digital\n\n{unsubscribe}"
     )
     follow_up = (
         f"Hi again — just following up on my note about {business}'s website. "
         f"Happy to share a couple of quick ideas whenever suits.\n\n"
-        f"Best, the team at [Your Studio]\n\n{unsubscribe}"
+        f"Best,\nAlex, Oozy Digital\n\n{unsubscribe}"
     )
     linkedin = (
-        f"Hi — I help local businesses with their websites and noticed a couple of small wins "
-        f"for {business}. Would you be open to a quick chat?"
+        f"Hi — I'm Alex from Oozy Digital. I help local businesses with their websites and "
+        f"noticed a couple of small wins for {business}. Would you be open to a quick chat?"
     )
     return {
         "subject": f"A couple of quick ideas for {business}",
