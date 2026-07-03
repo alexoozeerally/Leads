@@ -414,3 +414,46 @@ uv run pytest -q                 # 96 passed, offline
 
 Verified here exactly as above: run 1 audited 3, run 2 skipped 3 (all fresh),
 logs clean and structured (`scheduler.run_complete audited=… skipped=…`).
+
+---
+
+## Phase 7 — Dashboard polish & exports ✅
+
+**Built**
+
+- **Search / filter / sort** (`app/dashboard/filters.py`, pure + tested): search
+  by name/category/postcode, filter by priority and minimum opportunity score,
+  "only leads with a draft", and sort by opportunity/likelihood/name.
+- **CSV export** (`app/dashboard/export.py`, pure + tested): download the
+  filtered leads as CSV (name, category, contact, score, priority, likelihood,
+  budget/value, draft status, summary) via a sidebar button.
+- **Progress tracking**: header metrics for shown/total leads, Hot count, total
+  drafts, and **approved/total drafts**.
+- The list already supports **lead detail** (expanders for the full audit,
+  competitor comparison, lead-score rationale, and the outreach draft) and
+  **draft approve / un-approve**.
+- **+8 tests (101 total):** CSV header/rows/values and every filter + sort path.
+
+**How to verify**
+
+```bash
+uv run streamlit run app/dashboard/streamlit_app.py
+# Sidebar: search, priority filter, score slider, sort, "Export filtered leads (CSV)".
+# Header: Leads x/y · Hot · Drafts · Approved a/b.
+uv run pytest -q                 # 101 passed, offline
+```
+
+The full user journey works end-to-end: **list → filter/search → lead detail
+(audit + competitor + score + draft) → approve draft → export CSV**. Verified
+here: CSV export produced all 9 leads with full score data; the approve button
+flips `OutreachDraft.approved` in the DB (Phase 5 test).
+
+---
+
+## Overall status
+
+All seven phases are complete, verified, and committed. The product runs
+end-to-end at every checkpoint; the test suite (**101 tests**) is green offline
+with no API keys, network, or Postgres; Ruff + Black are clean. No data is
+fabricated anywhere — unknowns stay unknown and every score carries its
+evidence. Drafts are never sent; a human approves.

@@ -1,8 +1,10 @@
-"""Streamlit dashboard — Phase 1.
+"""Streamlit dashboard.
 
-Lists discovered businesses with their opportunity score, website state, and the
-captured home-page screenshot. Later phases add search/filter, full reports,
-competitor comparison, draft review/approval, and CSV export.
+Lists discovered businesses ranked by web-design opportunity with: search /
+filter (priority, score, has-draft) / sort, screenshots, the full technical +
+visual audit, GBP + social sections, competitor comparison, the lead-score
+breakdown, reviewable outreach drafts with approve/un-approve, CSV export, and
+progress tracking. Nothing is sent — a human approves every draft.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from app.dashboard.data_access import (  # noqa: E402
     fetch_latest_leads,
     set_draft_approved,
 )
+from app.dashboard.export import leads_to_csv  # noqa: E402
+from app.dashboard.filters import SORT_OPTIONS, LeadFilter, apply_filter  # noqa: E402
 
 st.set_page_config(page_title="AI Web-Design Lead Finder", layout="wide")
 
@@ -215,6 +219,22 @@ def _render_score_row(label: str, entry: dict) -> None:
     st.markdown(f"- **{label}** · :{colour}[{value:.1f}/{mx:.0f}] — {entry.get('explanation', '')}")
 
 
+def _sidebar_filter(leads: list[LeadRow]) -> LeadFilter:
+    st.sidebar.header("Search & filter")
+    search = st.sidebar.text_input("Search (name, category, postcode)")
+    priorities = st.sidebar.multiselect("Priority", ["Hot", "Warm", "Cold"])
+    min_score = st.sidebar.slider("Minimum opportunity score", 0, 100, 0)
+    only_draft = st.sidebar.checkbox("Only leads with a draft", value=False)
+    sort = st.sidebar.selectbox("Sort by", list(SORT_OPTIONS))
+    return LeadFilter(
+        search=search,
+        priorities=tuple(priorities),
+        min_score=float(min_score),
+        only_with_draft=only_draft,
+        sort=sort,
+    )
+
+
 def main() -> None:
     st.title("AI Web-Design Lead Finder")
     st.caption(
@@ -222,18 +242,36 @@ def main() -> None:
         "reviewed by a human before any outreach is sent."
     )
 
-    leads = fetch_latest_leads()
-    if not leads:
+    all_leads = fetch_latest_leads()
+    if not all_leads:
         st.warning("No leads yet. Run the pipeline first:\n\n" "`uv run leadfinder run-sample`")
         return
 
-    hot = sum(1 for lead in leads if (lead.opportunity_score or 0) >= 75)
-    a, b, c = st.columns(3)
-    a.metric("Leads", len(leads))
+    lead_filter = _sidebar_filter(all_leads)
+    leads = apply_filter(all_leads, lead_filter)
+
+    # Progress tracking across the full set (not just the filtered view).
+    drafts = [le for le in all_leads if le.draft]
+    approved = [le for le in drafts if le.draft.get("approved")]
+    hot = sum(1 for le in all_leads if (le.opportunity_score or 0) >= 75)
+    a, b, c, d = st.columns(4)
+    a.metric("Leads", f"{len(leads)}/{len(all_leads)}")
     b.metric("Hot (≥75)", hot)
-    c.metric("With a live site", sum(1 for lead in leads if lead.website_state == "ok"))
+    c.metric("Drafts", len(drafts))
+    d.metric("Approved", f"{len(approved)}/{len(drafts) or 0}")
+
+    st.sidebar.divider()
+    st.sidebar.download_button(
+        "⬇️ Export filtered leads (CSV)",
+        data=leads_to_csv(leads),
+        file_name="leads.csv",
+        mime="text/csv",
+    )
     st.divider()
 
+    if not leads:
+        st.info("No leads match the current filters.")
+        return
     for lead in leads:
         _render_lead(lead)
 
