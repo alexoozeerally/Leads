@@ -96,7 +96,8 @@ async def test_pipeline_reaudit_increments_version(db_engine, tmp_path):
         modules=[VisionAgent(client=MockLLMClient())],
     )
     await pipeline.process_all([biz])
-    await pipeline.process_all([biz])  # second audit of the same business
+    # Force the second audit (the freshness policy would otherwise skip it).
+    await pipeline.process_all([biz], force=True)
 
     async with session_scope() as session:
         versions = (
@@ -107,3 +108,34 @@ async def test_pipeline_reaudit_increments_version(db_engine, tmp_path):
         biz_count = await session.scalar(select(func.count()).select_from(BusinessRecord))
     assert versions == [1, 2]  # audit history is versioned
     assert biz_count == 1  # de-duplicated to one business
+
+
+@pytest.mark.asyncio
+async def test_pipeline_skips_fresh_leads_on_second_run(db_engine):
+    biz = Business(name="Fresh Co", source_provider="fake", website="https://fresh.example")
+    crawl_map = {
+        "https://fresh.example": CrawlResult(
+            url="https://fresh.example", state=WebsiteState.OK, status_code=200, text="hello world"
+        )
+    }
+    pipeline = LeadPipeline(
+        provider=FakeProvider([biz]),
+        crawler=FakeCrawler(crawl_map),
+        modules=[VisionAgent(client=MockLLMClient())],
+        generate_outreach=False,
+    )
+    first = await pipeline.process_all([biz])
+    assert first.audited == 1 and first.skipped == 0
+
+    # Second run immediately after -> the lead is fresh within the re-audit window.
+    second = await pipeline.process_all([biz])
+    assert second.audited == 0 and second.skipped == 1
+    assert "fresh" in second.outcomes[0].reason
+
+    # Forcing re-audit overrides the freshness skip.
+    forced = await pipeline.process_all([biz], force=True)
+    assert forced.audited == 1
+
+    async with session_scope() as session:
+        audit_count = await session.scalar(select(func.count()).select_from(AuditRecord))
+    assert audit_count == 2  # only the two non-skipped runs created audits

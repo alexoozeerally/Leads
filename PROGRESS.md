@@ -372,3 +372,45 @@ Verified here: Harbourside (no site) → Hot, likelihood 0.86, budget £2,000–
 (new site), rationale need +45; draft with two distinct new-site opportunities +
 a real reviews compliment + unsubscribe. A suppressed contact produced **no
 draft** (logged `outreach.suppressed`); a non-suppressed one did.
+
+---
+
+## Phase 6 — Automation & robustness ✅
+
+**Built**
+
+- **De-duplication / re-audit window** (`app/services/freshness.py`) — before
+  auditing, the pipeline looks up the business's latest audit and skips it if it
+  was audited within `reaudit_after_days` (configurable), returning a
+  human-readable reason and the next re-audit date. `--force` overrides.
+- **Scheduled runs** (`app/services/scheduler.py` + `leadfinder schedule`) — runs
+  the pipeline every N minutes (or a bounded number of runs); each run honours
+  the freshness policy. Also documented for external cron/systemd via
+  `leadfinder discover`.
+- **Retry logic** — bounded exponential-backoff retries (via `tenacity`) on the
+  Anthropic Messages API and the Overpass HTTP call; the crawler already
+  classifies navigation failures gracefully.
+- **Per-API rate limiting + response caching** (`app/agents/llm_cache.py`) — a
+  transparent `CachingRateLimitedClient` wraps every LLM client: an in-memory
+  cache keyed by system+user+**image content hash** (so **vision is never re-run
+  on unchanged screenshots**), plus a per-second API rate limiter. Wired into
+  `get_llm_client`.
+- Existing robustness carried forward: **structured logging** (structlog),
+  **per-host crawler rate limiting**, and **audit versioning/history**
+  (`AuditRecord.version`).
+- **+14 tests (96 total):** freshness (never/fresh/stale/force/naive-timestamp),
+  LLM cache (identical-cached, distinct-not-cached, image-hash keying,
+  disable), and a two-run pipeline dedup test (run 1 audits, run 2 skips, force
+  re-audits). All offline.
+
+**How to verify**
+
+```bash
+uv run leadfinder schedule Dentist --postcode "BS8 2QN" --interval-minutes 0 --runs 2
+# Run 1: audited 3, skipped 0
+# Run 2: audited 0, skipped 3   <- fresh leads skipped
+uv run pytest -q                 # 96 passed, offline
+```
+
+Verified here exactly as above: run 1 audited 3, run 2 skipped 3 (all fresh),
+logs clean and structured (`scheduler.run_complete audited=… skipped=…`).

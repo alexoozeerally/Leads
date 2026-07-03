@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-5"
     anthropic_max_tokens: int = 2048
     agent_max_retries: int = 2
+    # Robustness: network retries, per-API rate limit, and response caching.
+    anthropic_max_network_retries: int = 3
+    anthropic_rate_limit_per_second: float = Field(
+        default=2.0, description="Max Anthropic requests/sec (per-API rate limit)."
+    )
+    llm_cache_enabled: bool = Field(
+        default=True, description="Cache identical LLM calls (e.g. unchanged screenshots)."
+    )
 
     # --- Business discovery --------------------------------------------------
     business_provider: str = Field(default="csv", description="Active provider: csv | osm")
@@ -71,6 +79,9 @@ class Settings(BaseSettings):
     # --- Pipeline / robustness ----------------------------------------------
     reaudit_after_days: int = Field(
         default=30, description="Skip re-auditing a lead audited within this window."
+    )
+    schedule_interval_minutes: int = Field(
+        default=1440, description="Default interval for scheduled runs (minutes)."
     )
 
     @property

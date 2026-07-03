@@ -70,6 +70,22 @@ class OSMBusinessProvider(BusinessProvider):
         # NB: query.radius_km is honoured via an 'around' query in a future
         # revision once we resolve the anchor to coordinates.
 
+    async def _post_with_retry(self, client: httpx.AsyncClient, overpass_query: str) -> dict:
+        """POST to Overpass with bounded exponential-backoff retries (transient errors)."""
+        from tenacity import retry, stop_after_attempt, wait_exponential
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=15),
+            reraise=True,
+        )
+        async def _call() -> dict:
+            resp = await client.post(self._url, data={"data": overpass_query})
+            resp.raise_for_status()
+            return resp.json()
+
+        return await _call()
+
     def _element_to_business(self, el: dict) -> Business | None:
         tags = el.get("tags", {})
         name = tags.get("name")
@@ -113,9 +129,7 @@ class OSMBusinessProvider(BusinessProvider):
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=30)
         try:
-            resp = await client.post(self._url, data={"data": overpass_query})
-            resp.raise_for_status()
-            payload = resp.json()
+            payload = await self._post_with_retry(client, overpass_query)
         except httpx.HTTPError as exc:
             raise ProviderError(f"Overpass request failed: {exc}") from exc
         finally:

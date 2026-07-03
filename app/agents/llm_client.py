@@ -73,17 +73,37 @@ class AnthropicClient:
         content.append({"type": "text", "text": user})
 
         try:
-            resp = await self._client.messages.create(
+            resp = await self._create_with_retry(system, content)
+        except Exception as exc:  # network / API errors after retries
+            raise AgentError(f"Anthropic API call failed: {exc}") from exc
+
+        parts = [block.text for block in resp.content if getattr(block, "type", "") == "text"]
+        return "\n".join(parts)
+
+    async def _create_with_retry(self, system: str, content: list[dict]):
+        """Call the Messages API with bounded exponential-backoff retries."""
+        from tenacity import (
+            retry,
+            stop_after_attempt,
+            wait_exponential,
+        )
+
+        attempts = max(1, self._settings.anthropic_max_network_retries)
+
+        @retry(
+            stop=stop_after_attempt(attempts),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            reraise=True,
+        )
+        async def _call():
+            return await self._client.messages.create(
                 model=self._settings.anthropic_model,
                 max_tokens=self._settings.anthropic_max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": content}],
             )
-        except Exception as exc:  # network / API errors
-            raise AgentError(f"Anthropic API call failed: {exc}") from exc
 
-        parts = [block.text for block in resp.content if getattr(block, "type", "") == "text"]
-        return "\n".join(parts)
+        return await _call()
 
 
 @dataclass
@@ -121,10 +141,17 @@ class MockLLMClient:
 
 
 def get_llm_client(settings: Settings | None = None) -> LLMClient:
-    """Return the real client when a key is configured, else the mock."""
+    """Return the active client, wrapped with caching + per-API rate limiting.
+
+    Real Anthropic client when a key is configured, else the deterministic mock.
+    """
+    from app.agents.llm_cache import CachingRateLimitedClient
+
     settings = settings or get_settings()
     if settings.anthropic_enabled:
         log.info("llm.client", mode="anthropic", model=settings.anthropic_model)
-        return AnthropicClient(settings)
-    log.info("llm.client", mode="mock")
-    return MockLLMClient()
+        inner: LLMClient = AnthropicClient(settings)
+    else:
+        log.info("llm.client", mode="mock")
+        inner = MockLLMClient()
+    return CachingRateLimitedClient(inner, settings)

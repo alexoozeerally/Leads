@@ -9,6 +9,7 @@ swapped without touching this code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from app.agents.auditor import WebsiteAuditor
 from app.agents.base import AuditModule
@@ -20,6 +21,7 @@ from app.agents.vision import VisionAgent
 from app.business_providers.base import BusinessProvider
 from app.business_providers.factory import get_provider
 from app.config.logging import get_logger
+from app.config.settings import get_settings
 from app.crawler.crawler import WebsiteCrawler
 from app.database.repositories.audit_repo import AuditRepository
 from app.database.repositories.business_repo import BusinessRepository
@@ -32,6 +34,8 @@ from app.schemas.context import AuditContext, CrawlResult
 from app.schemas.lead_score import LeadScore
 from app.schemas.outreach import OutreachContent
 from app.services.competitor import CompetitorService
+from app.services.freshness import FreshnessDecision
+from app.services.freshness import decide as freshness_decide
 from app.services.lead_scoring import LeadScorer
 from app.services.scoring import apply_competitive_pressure, opportunity_from_results
 
@@ -49,6 +53,8 @@ class LeadOutcome:
     notes: str = ""
     priority: str = ""
     has_draft: bool = False
+    skipped: bool = False
+    reason: str = ""
 
 
 @dataclass
@@ -58,12 +64,23 @@ class PipelineResult:
     def summary_lines(self) -> list[str]:
         lines = []
         for o in sorted(self.outcomes, key=lambda x: x.opportunity_score, reverse=True):
+            if o.skipped:
+                lines.append(f"  [ skip ] —     {o.business.name}  — {o.reason}")
+                continue
             draft = "✍ draft" if o.has_draft else "—"
             lines.append(
                 f"  [{o.opportunity_score:5.1f}] {o.priority or '?':4s}  {o.business.name}  "
                 f"— {o.state.value}  ({draft})"
             )
         return lines
+
+    @property
+    def audited(self) -> int:
+        return sum(1 for o in self.outcomes if not o.skipped)
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for o in self.outcomes if o.skipped)
 
 
 class LeadPipeline:
@@ -93,6 +110,7 @@ class LeadPipeline:
             SocialAgent(),
         ]
         self._competitor_service = competitor_service
+        self._settings = get_settings()
         self._scorer = scorer or LeadScorer()
         if email_generator is not None:
             self._email_generator: EmailGenerator | None = email_generator
@@ -106,7 +124,19 @@ class LeadPipeline:
         log.info("pipeline.discovered", count=len(businesses), provider=self._provider.name)
         return businesses
 
-    async def process_business(self, business: Business) -> LeadOutcome:
+    async def process_business(self, business: Business, *, force: bool = False) -> LeadOutcome:
+        # De-duplication / re-audit window: skip businesses audited recently.
+        decision = await self._check_freshness(business, force)
+        if not decision.should_audit:
+            log.info("pipeline.skipped_fresh", business=business.name, reason=decision.reason)
+            return LeadOutcome(
+                business=business,
+                state=WebsiteState.UNKNOWN,
+                opportunity_score=0.0,
+                skipped=True,
+                reason=decision.reason,
+            )
+
         crawl: CrawlResult = await self._crawler.crawl(business.website)
         ctx = AuditContext(business=business, crawl=crawl)
 
@@ -154,6 +184,21 @@ class LeadPipeline:
             notes=notes,
             priority=lead_score.priority.value,
             has_draft=draft is not None,
+        )
+
+    async def _check_freshness(self, business: Business, force: bool) -> FreshnessDecision:
+        """Look up the latest audit for this business and apply the re-audit policy."""
+        async with session_scope() as session:
+            biz_repo = BusinessRepository(session)
+            existing = await biz_repo.get_by_dedupe_key(business.dedupe_key())
+            latest = None
+            if existing is not None:
+                latest = await AuditRepository(session).latest_for_business(existing.id)
+        return freshness_decide(
+            latest,
+            reaudit_after_days=self._settings.reaudit_after_days,
+            now=datetime.now(UTC),
+            force=force,
         )
 
     async def _draft_outreach(self, business, lead_score, results, competitor):
@@ -262,22 +307,25 @@ class LeadPipeline:
                 )
             return audit.id, score_record.id
 
-    async def process_all(self, businesses: list[Business]) -> PipelineResult:
+    async def process_all(
+        self, businesses: list[Business], *, force: bool = False
+    ) -> PipelineResult:
         result = PipelineResult()
         for business in businesses:
             try:
-                outcome = await self.process_business(business)
+                outcome = await self.process_business(business, force=force)
                 result.outcomes.append(outcome)
-                log.info(
-                    "pipeline.processed",
-                    business=business.name,
-                    state=outcome.state.value,
-                    opportunity=outcome.opportunity_score,
-                )
+                if not outcome.skipped:
+                    log.info(
+                        "pipeline.processed",
+                        business=business.name,
+                        state=outcome.state.value,
+                        opportunity=outcome.opportunity_score,
+                    )
             except Exception as exc:  # one bad site must not sink the batch
                 log.error("pipeline.business_failed", business=business.name, error=str(exc))
         return result
 
-    async def run(self, query: DiscoveryQuery) -> PipelineResult:
+    async def run(self, query: DiscoveryQuery, *, force: bool = False) -> PipelineResult:
         businesses = await self.discover(query)
-        return await self.process_all(businesses)
+        return await self.process_all(businesses, force=force)

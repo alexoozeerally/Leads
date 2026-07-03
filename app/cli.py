@@ -33,15 +33,28 @@ def _print_summary(result) -> None:
     print("\nDone. Open the dashboard:  uv run streamlit run app/dashboard/streamlit_app.py")
 
 
-async def _run(query: DiscoveryQuery, provider: str | None) -> int:
+async def _run(query: DiscoveryQuery, provider: str | None, force: bool = False) -> int:
     settings = get_settings()
     pipeline = LeadPipeline(provider=get_provider(provider, settings))
     print(
         f"Running pipeline (provider={provider or settings.business_provider}, "
-        f"anthropic={'live' if settings.anthropic_enabled else 'mock'})...\n"
+        f"anthropic={'live' if settings.anthropic_enabled else 'mock'}, force={force})...\n"
     )
-    result = await pipeline.run(query)
+    result = await pipeline.run(query, force=force)
+    print(f"Audited {result.audited}, skipped {result.skipped} (fresh within re-audit window).")
     _print_summary(result)
+    return 0
+
+
+async def _schedule(query: DiscoveryQuery, provider: str | None, interval: int, runs: int) -> int:
+    from app.services.scheduler import run_scheduled
+
+    settings = get_settings()
+    pipeline = LeadPipeline(provider=get_provider(provider, settings))
+    print(f"Scheduling {runs} run(s) every {interval} min. Fresh leads are skipped each run.\n")
+    results = await run_scheduled(pipeline, query, interval_minutes=interval, max_runs=runs)
+    for i, r in enumerate(results, 1):
+        print(f"Run {i}: audited {r.audited}, skipped {r.skipped}")
     return 0
 
 
@@ -102,6 +115,15 @@ def main() -> None:
     disc.add_argument("--radius-km", type=float, default=5.0)
     disc.add_argument("--limit", type=int, default=25)
     disc.add_argument("--provider", default=None, help="csv | osm (default: configured)")
+    disc.add_argument("--force", action="store_true", help="Re-audit even if fresh.")
+
+    sched = sub.add_parser("schedule", help="Run discovery on a repeating interval.")
+    sched.add_argument("industry")
+    sched.add_argument("--town", default=None)
+    sched.add_argument("--postcode", default=None)
+    sched.add_argument("--provider", default=None)
+    sched.add_argument("--interval-minutes", type=int, default=1440)
+    sched.add_argument("--runs", type=int, default=1, help="Number of runs (default 1).")
 
     args = parser.parse_args()
 
@@ -117,7 +139,15 @@ def main() -> None:
             radius_km=args.radius_km,
             limit=args.limit,
         )
-        raise SystemExit(asyncio.run(_run(query, provider=args.provider)))
+        raise SystemExit(asyncio.run(_run(query, provider=args.provider, force=args.force)))
+
+    if args.command == "schedule":
+        query = DiscoveryQuery(
+            industry=args.industry, town=args.town, postcode=args.postcode, limit=50
+        )
+        raise SystemExit(
+            asyncio.run(_schedule(query, args.provider, args.interval_minutes, args.runs))
+        )
 
 
 if __name__ == "__main__":
