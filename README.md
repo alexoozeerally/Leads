@@ -62,7 +62,7 @@ uv run leadfinder run-sample
 Then open the Streamlit dashboard:
 
 ```bash
-uv run streamlit run app/dashboard/app.py
+uv run streamlit run app/dashboard/streamlit_app.py
 ```
 
 ## Configuration

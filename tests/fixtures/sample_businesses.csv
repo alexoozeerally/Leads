@@ -1,0 +1,6 @@
+name,category,address,postcode,phone,website,email,rating,review_count,latitude,longitude,source_url
+Clifton Dental Care,Dentist,88 Whiteladies Road,BS8 2QN,+44 117 900 0003,modern.html,info@cliftondental.example,4.3,215,51.4670,-2.6120,
+Old City Barbers,Barber,12 Corn Street,BS1 1HQ,+44 117 900 0001,dated.html,,4.6,87,51.4545,-2.5945,
+Stokes Croft Cycles,Bicycle Shop,199 Stokes Croft,BS1 3RU,+44 117 900 0005,average.html,hello@stokescycles.example,4.5,63,51.4640,-2.5880,
+Bedminster Bakes,Bakery,45 North Street,BS3 1EN,+44 117 900 0004,construction.html,,4.9,156,51.4405,-2.6010,
+Harbourside Plumbing,Plumber,3 Anchor Road,BS1 5TT,+44 117 900 0002,,,4.8,42,51.4490,-2.6005,

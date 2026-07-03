@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     crawler_timeout_seconds: float = 30.0
     crawler_respect_robots: bool = True
     screenshot_dir: str = "./data/screenshots"
+    # Path to a pre-installed Chromium (set when Playwright's bundled browser is
+    # absent, e.g. this managed environment). None -> use Playwright's default.
+    playwright_executable_path: str | None = None
+    # Optional HTTP proxy for the browser (e.g. an egress proxy). None -> direct.
+    crawler_proxy: str | None = None
 
     # --- Pipeline / robustness ----------------------------------------------
     reaudit_after_days: int = Field(

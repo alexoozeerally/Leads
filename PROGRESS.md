@@ -69,3 +69,85 @@ uv run ruff check app tests && uv run black --check app tests   # clean
 
 Docker path (requires a running Docker daemon, not available in this build env):
 `docker compose -f docker/docker-compose.yml up --build`.
+
+---
+
+## Phase 1 — Vertical slice (end-to-end on real sample data) ✅
+
+**Built**
+
+- **Two providers behind the interface:**
+  - `CSVBusinessProvider` — reads a CSV; unknown columns stay `None`; light
+    industry/postcode/town filtering. Licence note: operator-supplied data.
+  - `OSMBusinessProvider` — OpenStreetMap via Overpass QL (ODbL; attribute OSM
+    contributors). Maps industries to OSM tags; parses named nodes/ways; skips
+    unnamed; sets `data_confidence=0.7`. Injectable httpx client for testing.
+- **Polite Playwright crawler** (`app/crawler/`):
+  - `RobotsCache` (respects `robots.txt`) + per-host `RateLimiter`.
+  - Renders JS, extracts text/title/meta/links, captures **desktop + mobile
+    screenshots**, and classifies `WebsiteState` (ok / no_site / broken /
+    parked / under_construction / redirect_loop / invalid_ssl).
+  - Auto-detects the managed Chromium at `/opt/pw-browsers/chromium`; optional
+    proxy; truthful identifying User-Agent from settings.
+- **Vision agent** (`app/agents/vision.py`) — the one AI agent for Phase 1.
+  Sends screenshots to an `LLMClient`; validates a `VisionAnalysis` (10 design
+  dimensions + first-impression + estimated age), each score with an
+  explanation. No-site/parked → honest max-opportunity result (no fabricated
+  assessment). Behind the `LLMClient` interface: real `AnthropicClient` or a
+  deterministic `MockLLMClient`.
+- **Agent runner** — extracts JSON (handles code fences/prose), validates
+  against a Pydantic schema, retries with a corrective instruction on failure,
+  then raises `AgentOutputError` (never returns junk).
+- **Prompt file** `app/prompts/vision.md`, loaded at runtime (never inlined).
+- **Orchestration** (`app/services/pipeline.py`) — discover → crawl → audit →
+  score → persist. Phase-1 opportunity scoring in `app/services/scoring.py`
+  (no-site/broken/parked = 90; else inverse of audit quality). Persists
+  business + versioned audit + screenshots via the repositories.
+- **CLI** `leadfinder run-sample` / `discover` (`app/cli.py`).
+- **Streamlit dashboard** (`app/dashboard/streamlit_app.py`) — lists businesses
+  ranked by opportunity with website-state badge, score, notes, and screenshots.
+- **Offline test suite** grew to **48 tests** (CSV/OSM providers with mocked
+  HTTP, crawler logic, politeness, vision agent with mock LLM, runner
+  retry/fail, scoring, and a full-pipeline integration test with fakes + real
+  SQLite). No network, no browser, no API key required.
+
+**Key decisions & assumptions**
+
+- **Local-fixture demo for `run-sample`.** This managed environment's egress
+  policy blocks crawling arbitrary public sites (the proxy returns 403 to
+  CONNECT for e.g. example.com). To prove the pipeline end-to-end *for real*,
+  `run-sample` serves realistic fixture sites (`tests/fixtures/sites/*.html`)
+  on `localhost` and crawls those — a **real** browser render, **real**
+  screenshots, **real** vision agent, **real** DB. Only the target sites are
+  local; nothing in the pipeline is faked. Point `BUSINESS_PROVIDER=osm` (or a
+  real CSV) at live data in an unrestricted network to crawl the open web.
+- **Each demo site on its own localhost port** so businesses stay distinct
+  (real businesses live on separate domains → distinct `dedupe_key`s). Two real
+  bugs were found and fixed this way: screenshot filenames now include the URL
+  path+hash (were host-only, so pages overwrote each other), and the dashboard
+  entry file was renamed `streamlit_app.py` (a file named `app.py` shadowed the
+  `app` package under `streamlit run`).
+- **Mock produces schema-valid, clearly-labelled output.** With no API key the
+  vision agent returns deterministic `[mock]` data so the demo/tests run
+  offline; the stored `raw` payload is flagged `_mock` so it's never mistaken
+  for a live audit. `# INTEGRATION:` — set `ANTHROPIC_API_KEY` for real vision.
+
+**Deferred**
+
+- Full technical/visual audit, GBP/social, competitor analysis, full LeadScore,
+  outreach drafts, scheduling/robustness, dashboard filters/exports → Phases 2–7.
+
+**How to verify**
+
+```bash
+uv run alembic upgrade head
+uv run leadfinder run-sample     # 5 businesses ingested end-to-end, real screenshots
+uv run streamlit run app/dashboard/streamlit_app.py   # list w/ scores + screenshots
+uv run pytest -q                 # 48 passed, offline
+uv run ruff check app tests && uv run black --check app tests   # clean
+```
+
+Verified here: `run-sample` produced 5 distinct businesses (2 at opportunity
+90.0 — the no-site plumber and under-construction bakery), 5 versioned audits,
+and 8 real screenshots; the dashboard rendered them (screenshot captured during
+build).

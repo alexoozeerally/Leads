@@ -11,7 +11,7 @@ api:
 	uv run uvicorn app.main:app --reload
 
 dashboard:
-	uv run streamlit run app/dashboard/app.py
+	uv run streamlit run app/dashboard/streamlit_app.py
 
 run-sample:
 	uv run leadfinder run-sample
