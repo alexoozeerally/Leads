@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from app.agents.auditor import WebsiteAuditor
 from app.agents.base import AuditModule
+from app.agents.email_generator import EmailGenerator
 from app.agents.gbp import GBPAgent
 from app.agents.llm_client import LLMClient, get_llm_client
 from app.agents.social import SocialAgent
@@ -22,11 +23,16 @@ from app.config.logging import get_logger
 from app.crawler.crawler import WebsiteCrawler
 from app.database.repositories.audit_repo import AuditRepository
 from app.database.repositories.business_repo import BusinessRepository
+from app.database.repositories.lead_repo import LeadRepository, SuppressionRepository
 from app.database.session import session_scope
 from app.schemas.audit import AuditResult, WebsiteState
 from app.schemas.business import Business, DiscoveryQuery
+from app.schemas.competitor import CompetitorReport
 from app.schemas.context import AuditContext, CrawlResult
+from app.schemas.lead_score import LeadScore
+from app.schemas.outreach import OutreachContent
 from app.services.competitor import CompetitorService
+from app.services.lead_scoring import LeadScorer
 from app.services.scoring import apply_competitive_pressure, opportunity_from_results
 
 log = get_logger(__name__)
@@ -41,6 +47,8 @@ class LeadOutcome:
     opportunity_score: float
     audit_id: int | None = None
     notes: str = ""
+    priority: str = ""
+    has_draft: bool = False
 
 
 @dataclass
@@ -50,9 +58,10 @@ class PipelineResult:
     def summary_lines(self) -> list[str]:
         lines = []
         for o in sorted(self.outcomes, key=lambda x: x.opportunity_score, reverse=True):
-            site = o.business.website or "(no website)"
+            draft = "✍ draft" if o.has_draft else "—"
             lines.append(
-                f"  [{o.opportunity_score:5.1f}] {o.business.name}  " f"— {o.state.value}  — {site}"
+                f"  [{o.opportunity_score:5.1f}] {o.priority or '?':4s}  {o.business.name}  "
+                f"— {o.state.value}  ({draft})"
             )
         return lines
 
@@ -68,6 +77,9 @@ class LeadPipeline:
         modules: list[AuditModule] | None = None,
         llm_client: LLMClient | None = None,
         competitor_service: CompetitorService | None = None,
+        scorer: LeadScorer | None = None,
+        email_generator: EmailGenerator | None = None,
+        generate_outreach: bool = True,
     ) -> None:
         self._provider = provider or get_provider()
         self._crawler = crawler or WebsiteCrawler()
@@ -81,6 +93,13 @@ class LeadPipeline:
             SocialAgent(),
         ]
         self._competitor_service = competitor_service
+        self._scorer = scorer or LeadScorer()
+        if email_generator is not None:
+            self._email_generator: EmailGenerator | None = email_generator
+        elif generate_outreach:
+            self._email_generator = EmailGenerator(client=client)
+        else:
+            self._email_generator = None
 
     async def discover(self, query: DiscoveryQuery) -> list[Business]:
         businesses = await self._provider.search(query)
@@ -100,20 +119,73 @@ class LeadPipeline:
 
         # Competitor analysis (optional) — compares the lead to nearby rivals and
         # measurably influences the opportunity score via competitive pressure.
+        competitor_report: CompetitorReport | None = None
         if self._competitor_service is not None:
             lead_quality = self._quality_ratio(results.get("auditor"))
-            report = await self._competitor_service.analyse(business, lead_quality)
-            results["competitor"] = self._competitor_service.to_audit_result(report)
-            opportunity = apply_competitive_pressure(opportunity, report.competitive_pressure)
+            competitor_report = await self._competitor_service.analyse(business, lead_quality)
+            results["competitor"] = self._competitor_service.to_audit_result(competitor_report)
+            opportunity = apply_competitive_pressure(
+                opportunity, competitor_report.competitive_pressure
+            )
+
+        # Qualify the lead (aggregate everything into a LeadScore).
+        lead_score = self._scorer.score(
+            business=business,
+            website_state=crawl.state,
+            opportunity_score=opportunity,
+            results=results,
+            competitor=competitor_report,
+        )
+
+        # Draft outreach (never sent). Skipped if the contact is suppressed.
+        draft, suppressed = await self._draft_outreach(
+            business, lead_score, results, competitor_report
+        )
 
         notes = self._combined_notes(results)
-        audit_id = await self._persist(business, crawl, results, opportunity, notes)
+        audit_id, _ = await self._persist(
+            business, crawl, results, opportunity, notes, lead_score, draft, suppressed
+        )
         return LeadOutcome(
             business=business,
             state=crawl.state,
             opportunity_score=opportunity,
             audit_id=audit_id,
             notes=notes,
+            priority=lead_score.priority.value,
+            has_draft=draft is not None,
+        )
+
+    async def _draft_outreach(self, business, lead_score, results, competitor):
+        """Generate an outreach draft unless the contact is on the suppression list."""
+        if self._email_generator is None:
+            return None, False
+        async with session_scope() as session:
+            suppressed = await SuppressionRepository(session).is_suppressed(
+                email=business.email, phone=business.phone, website=business.website
+            )
+        if suppressed:
+            log.info("outreach.suppressed", business=business.name)
+            return None, True
+        try:
+            content = await self._email_generator.generate(
+                business=business,
+                lead_score=lead_score,
+                results=results,
+                competitor=competitor,
+            )
+            return content, False
+        except Exception as exc:  # a draft failure must not sink the lead
+            log.warning("outreach.generate_failed", business=business.name, error=str(exc))
+            return None, False
+
+    @staticmethod
+    def _lawful_basis_note(business: Business) -> str:
+        return (
+            "Lawful basis: legitimate interest (Art. 6(1)(f) UK GDPR) for B2B marketing to a "
+            f"business contact ({business.source_provider} data). PECR: corporate subscriber. "
+            "Human approval required before sending; suppression list honoured; every template "
+            "includes an unsubscribe option."
         )
 
     @staticmethod
@@ -139,10 +211,14 @@ class LeadPipeline:
         results: dict[str, AuditResult],
         opportunity: float,
         notes: str,
-    ) -> int:
+        lead_score: LeadScore,
+        draft: OutreachContent | None,
+        suppressed: bool,
+    ) -> tuple[int, int]:
         async with session_scope() as session:
             biz_repo = BusinessRepository(session)
             audit_repo = AuditRepository(session)
+            lead_repo = LeadRepository(session)
 
             biz_record = await biz_repo.upsert(business)
             await session.flush()
@@ -162,7 +238,29 @@ class LeadPipeline:
                 await audit_repo.add_screenshot(audit.id, "desktop", crawl.desktop_screenshot)
             if crawl.mobile_screenshot:
                 await audit_repo.add_screenshot(audit.id, "mobile", crawl.mobile_screenshot)
-            return audit.id
+
+            score_record = await lead_repo.create_score(
+                business_id=biz_record.id,
+                audit_id=audit.id,
+                opportunity_score=lead_score.opportunity_score,
+                priority=lead_score.priority.value,
+                likelihood_of_purchase=lead_score.likelihood_of_purchase,
+                estimated_budget=lead_score.estimated_budget,
+                estimated_project_value=lead_score.estimated_project_value,
+                summary=lead_score.summary,
+                payload=lead_score.model_dump(),
+            )
+            if draft is not None:
+                await lead_repo.add_draft(
+                    lead_score_id=score_record.id,
+                    subject=draft.subject,
+                    email_body=draft.email_body,
+                    follow_up=draft.follow_up,
+                    linkedin_message=draft.linkedin_message,
+                    lawful_basis_note=self._lawful_basis_note(business),
+                    payload={**draft.model_dump(), "suppressed": suppressed},
+                )
+            return audit.id, score_record.id
 
     async def process_all(self, businesses: list[Business]) -> PipelineResult:
         result = PipelineResult()

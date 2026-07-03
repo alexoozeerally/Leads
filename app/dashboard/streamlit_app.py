@@ -18,7 +18,11 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from app.dashboard.data_access import LeadRow, fetch_latest_leads  # noqa: E402
+from app.dashboard.data_access import (  # noqa: E402
+    LeadRow,
+    fetch_latest_leads,
+    set_draft_approved,
+)
 
 st.set_page_config(page_title="AI Web-Design Lead Finder", layout="wide")
 
@@ -73,8 +77,75 @@ def _render_lead(lead: LeadRow) -> None:
         else:
             st.info("No screenshot (no live site to capture).")
 
+    _render_lead_score(lead)
     _render_audit_report(lead)
+    _render_draft(lead)
     st.divider()
+
+
+PRIORITY_BADGE = {"Hot": "🔥 Hot", "Warm": "🌤 Warm", "Cold": "❄️ Cold"}
+
+
+def _render_lead_score(lead: LeadRow) -> None:
+    ls = lead.lead_score
+    if not ls:
+        return
+    cols = st.columns(4)
+    cols[0].markdown(f"**Priority**\n\n{PRIORITY_BADGE.get(ls['priority'], ls['priority'])}")
+    cols[1].markdown(f"**Likelihood**\n\n{ls['likelihood_of_purchase']:.0%}")
+    cols[2].markdown(f"**Est. budget**\n\n{ls.get('estimated_budget') or '—'}")
+    cols[3].markdown(f"**Est. project value**\n\n{ls.get('estimated_project_value') or '—'}")
+    with st.expander("🧮 Lead score rationale (per-deduction, evidence-based)"):
+        for d in ls.get("rationale", []):
+            pts = f"+{d['points']}" if d["points"] else ""
+            st.markdown(f"- **{d['dimension']}** {pts} — {d['rationale']}")
+
+
+def _render_draft(lead: LeadRow) -> None:
+    draft = lead.draft
+    if not draft:
+        st.caption("No outreach draft (contact suppressed or generation skipped).")
+        return
+    status = "✅ Approved" if draft["approved"] else "⏳ Awaiting approval"
+    with st.expander(f"✉️ Outreach draft — {status} (a human sends; nothing is automatic)"):
+        st.text_input("Subject", draft["subject"], key=f"subj_{draft['id']}", disabled=True)
+        st.markdown("**Email**")
+        st.text_area(
+            "email",
+            draft["email_body"],
+            height=220,
+            key=f"em_{draft['id']}",
+            label_visibility="collapsed",
+            disabled=True,
+        )
+        st.markdown("**Follow-up**")
+        st.text_area(
+            "fu",
+            draft["follow_up"],
+            height=100,
+            key=f"fu_{draft['id']}",
+            label_visibility="collapsed",
+            disabled=True,
+        )
+        st.markdown("**LinkedIn message**")
+        st.text_area(
+            "li",
+            draft["linkedin_message"],
+            height=90,
+            key=f"li_{draft['id']}",
+            label_visibility="collapsed",
+            disabled=True,
+        )
+        st.caption(f"⚖️ {draft['lawful_basis_note']}")
+        col1, col2 = st.columns(2)
+        if not draft["approved"]:
+            if col1.button("Approve draft", key=f"ap_{draft['id']}", type="primary"):
+                set_draft_approved(draft["id"], True)
+                st.rerun()
+        else:
+            if col2.button("Un-approve", key=f"un_{draft['id']}"):
+                set_draft_approved(draft["id"], False)
+                st.rerun()
 
 
 def _render_audit_report(lead: LeadRow) -> None:

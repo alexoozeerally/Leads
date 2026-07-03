@@ -312,3 +312,63 @@ reviews, website **47% vs 66%** competitor average → surfaced a website-gap
 weakness and three concrete opportunities, and its opportunity score rose to
 **61.5** (competitive pressure 0.335). Clifton (strong site, 215 reviews) showed
 three strengths, zero weaknesses, pressure 0.0 — a faithful competitive picture.
+
+---
+
+## Phase 5 — Lead qualification & outreach ✅
+
+**Built**
+
+- **`LeadScorer`** (`app/services/lead_scoring.py`) — aggregates the whole audit
+  bundle into a `LeadScore`: opportunity, **likelihood of purchase**, **budget**
+  & **project-value** bands, **Hot/Warm/Cold** priority, flattened dimension
+  scores, and a **per-deduction rationale** where every entry cites its evidence
+  (website state, audit quality, reachability, reviews, competitive pressure).
+  Estimates are documented heuristics tied to observed signals — never guesses.
+- **`EmailGenerator`** (`app/agents/email_generator.py`) — drafts **subject,
+  email, follow-up, LinkedIn message** with **exactly two genuine opportunities
+  + one real compliment + one clear CTA**, validated against `OutreachContent`
+  (a Pydantic validator enforces exactly two opportunities). Opportunities are
+  drawn from competitor gaps and the weakest audited categories (mapped to
+  distinct, concrete phrasing; no-site leads get new-site opportunities); the
+  compliment is a real strength, never invented flattery. No exaggerated claims
+  (prompt-enforced); every email + follow-up ends with an **unsubscribe** line.
+  Behind the `LLMClient` interface with a deterministic offline mock.
+- **Compliance wiring**: a **suppression / do-not-contact list**
+  (`SuppressionRepository`, matched by email/domain/phone/website) is checked
+  before any draft is generated; a **lawful-basis note** (legitimate interest,
+  B2B, PECR corporate subscriber) is stored per draft; **drafts are never
+  auto-approved or sent** — approval is a human action in the dashboard.
+- **Persistence**: `LeadScoreRecord` + `OutreachDraft` saved via `LeadRepository`
+  in the same transaction as the audit.
+- **Dashboard**: each lead now shows Priority / Likelihood / Budget / Project
+  value, an expandable **lead-score rationale**, and a reviewable **outreach
+  draft** (email, follow-up, LinkedIn, lawful-basis note) with an **Approve /
+  Un-approve** button. Nothing sends.
+- **+16 tests (86 total):** lead scoring (bands, priority, likelihood, rationale,
+  competitive pressure), email generation (exactly-two distinct opportunities,
+  no-site handling, competitor preference, unsubscribe, validation), and
+  suppression + approval defaults. All offline.
+
+**Key decisions / assumptions**
+
+- **Budget/value are transparent estimates, not quotes.** They are banded from
+  the website state and audit quality (new site / rebuild / redesign / improve)
+  and each carries its rationale. This is the one place the product must
+  estimate; it does so from evidence and labels it as an estimate.
+- **The mock draft uses the real selected content** (compliment + two
+  opportunities parsed from the prompt), so offline drafts are honest and the
+  selection logic is genuinely exercised. `# INTEGRATION:` set `ANTHROPIC_API_KEY`
+  for live phrasing.
+
+**How to verify**
+
+```bash
+uv run leadfinder run-sample     # every lead gets a LeadScore + a draft
+uv run pytest -q                 # 86 passed, offline
+```
+
+Verified here: Harbourside (no site) → Hot, likelihood 0.86, budget £2,000–£5,000
+(new site), rationale need +45; draft with two distinct new-site opportunities +
+a real reviews compliment + unsubscribe. A suppressed contact produced **no
+draft** (logged `outreach.suppressed`); a non-suppressed one did.

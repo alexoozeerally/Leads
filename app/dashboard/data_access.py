@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database.models.audit import AuditRecord
 from app.database.models.business import BusinessRecord
+from app.database.repositories.lead_repo import LeadRepository
 from app.database.session import session_scope
 
 
@@ -31,6 +32,10 @@ class LeadRow:
     desktop_screenshot: str | None
     mobile_screenshot: str | None
     module_results: dict
+    lead_score: dict | None = None  # full LeadScore payload
+    draft: dict | None = (
+        None  # {id, subject, email_body, follow_up, linkedin, lawful_basis, approved}
+    )
 
 
 async def _fetch_latest_leads() -> list[LeadRow]:
@@ -68,6 +73,23 @@ async def _fetch_latest_leads() -> list[LeadRow]:
                     elif shot.viewport == "mobile":
                         mobile = shot.path
 
+            lead_score_payload = None
+            draft_payload = None
+            score = await LeadRepository(session).latest_score_for_business(biz.id)
+            if score is not None:
+                lead_score_payload = score.payload
+                if score.drafts:
+                    d = score.drafts[0]
+                    draft_payload = {
+                        "id": d.id,
+                        "subject": d.subject,
+                        "email_body": d.email_body,
+                        "follow_up": d.follow_up,
+                        "linkedin_message": d.linkedin_message,
+                        "lawful_basis_note": d.lawful_basis_note,
+                        "approved": d.approved,
+                    }
+
             rows.append(
                 LeadRow(
                     business_id=biz.id,
@@ -81,6 +103,8 @@ async def _fetch_latest_leads() -> list[LeadRow]:
                     desktop_screenshot=desktop,
                     mobile_screenshot=mobile,
                     module_results=module_results,
+                    lead_score=lead_score_payload,
+                    draft=draft_payload,
                 )
             )
         rows.sort(key=lambda r: r.opportunity_score or -1, reverse=True)
@@ -90,3 +114,13 @@ async def _fetch_latest_leads() -> list[LeadRow]:
 def fetch_latest_leads() -> list[LeadRow]:
     """Blocking wrapper used by the Streamlit view."""
     return asyncio.run(_fetch_latest_leads())
+
+
+async def _set_draft_approved(draft_id: int, approved: bool) -> None:
+    async with session_scope() as session:
+        await LeadRepository(session).set_draft_approved(draft_id, approved)
+
+
+def set_draft_approved(draft_id: int, approved: bool) -> None:
+    """Approve or un-approve a drafted outreach (human action; nothing is sent)."""
+    asyncio.run(_set_draft_approved(draft_id, approved))
