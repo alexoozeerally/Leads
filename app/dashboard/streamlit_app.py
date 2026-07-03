@@ -95,6 +95,30 @@ def _render_audit_report(lead: LeadRow) -> None:
                 _render_score_row(cat.replace("_", " ").title(), entry)
         _render_context_section("Google Business Profile", gbp)
         _render_context_section("Social presence", social)
+        _render_competitor_section(mr.get("competitor", {}))
+
+
+def _render_competitor_section(result: dict) -> None:
+    """Render the competitor comparison: standing, strengths/weaknesses, opportunities."""
+    raw = (result or {}).get("raw") or {}
+    if not raw or not raw.get("competitors_found"):
+        if result:
+            st.markdown("**Competitor analysis**")
+            st.caption(result.get("notes", "No competitors found."))
+        return
+    st.markdown("**Competitor analysis**")
+    st.caption(raw.get("summary", ""))
+    for label in ("strengths", "weaknesses"):
+        items = raw.get(label) or []
+        if items:
+            st.markdown(f"_{label.title()}:_")
+            for it in items:
+                st.markdown(f"- {it}")
+    opps = raw.get("opportunities") or []
+    if opps:
+        st.markdown("_Three sales opportunities:_")
+        for i, o in enumerate(opps, 1):
+            st.markdown(f"{i}. {o}")
 
 
 def _render_context_section(title: str, result: dict) -> None:

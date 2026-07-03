@@ -15,7 +15,7 @@ SAMPLE = "tests/fixtures/sample_businesses.csv"
 async def test_reads_all_rows_when_industry_empty():
     provider = CSVBusinessProvider(SAMPLE)
     businesses = await provider.search(DiscoveryQuery(industry="", limit=25))
-    assert len(businesses) == 5
+    assert len(businesses) == 9
     assert {b.name for b in businesses} >= {"Old City Barbers", "Harbourside Plumbing"}
 
 
@@ -34,7 +34,24 @@ async def test_unknown_columns_stay_none():
 async def test_industry_filter_matches_category():
     provider = CSVBusinessProvider(SAMPLE)
     businesses = await provider.search(DiscoveryQuery(industry="Dentist", limit=25))
-    assert [b.name for b in businesses] == ["Clifton Dental Care"]
+    assert {b.name for b in businesses} == {
+        "Clifton Dental Care",
+        "Whiteladies Dental Studio",
+        "City Smile Dental",
+    }
+
+
+@pytest.mark.asyncio
+async def test_postcode_matches_by_outward_code():
+    provider = CSVBusinessProvider(SAMPLE)
+    # 'BS8 9ZZ' shares the outward code 'BS8' with the three dentists.
+    businesses = await provider.search(
+        DiscoveryQuery(industry="Dentist", postcode="BS8 9ZZ", limit=25)
+    )
+    assert len(businesses) == 3
+    # A different outward code excludes them.
+    none = await provider.search(DiscoveryQuery(industry="Dentist", postcode="BS1 1AA", limit=25))
+    assert none == []
 
 
 @pytest.mark.asyncio

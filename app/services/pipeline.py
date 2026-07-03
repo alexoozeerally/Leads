@@ -26,7 +26,8 @@ from app.database.session import session_scope
 from app.schemas.audit import AuditResult, WebsiteState
 from app.schemas.business import Business, DiscoveryQuery
 from app.schemas.context import AuditContext, CrawlResult
-from app.services.scoring import opportunity_from_results
+from app.services.competitor import CompetitorService
+from app.services.scoring import apply_competitive_pressure, opportunity_from_results
 
 log = get_logger(__name__)
 
@@ -66,6 +67,7 @@ class LeadPipeline:
         crawler: WebsiteCrawler | None = None,
         modules: list[AuditModule] | None = None,
         llm_client: LLMClient | None = None,
+        competitor_service: CompetitorService | None = None,
     ) -> None:
         self._provider = provider or get_provider()
         self._crawler = crawler or WebsiteCrawler()
@@ -78,6 +80,7 @@ class LeadPipeline:
             GBPAgent(),
             SocialAgent(),
         ]
+        self._competitor_service = competitor_service
 
     async def discover(self, query: DiscoveryQuery) -> list[Business]:
         businesses = await self._provider.search(query)
@@ -94,6 +97,15 @@ class LeadPipeline:
             results[module.name] = result
 
         opportunity = opportunity_from_results(crawl.state, results)
+
+        # Competitor analysis (optional) — compares the lead to nearby rivals and
+        # measurably influences the opportunity score via competitive pressure.
+        if self._competitor_service is not None:
+            lead_quality = self._quality_ratio(results.get("auditor"))
+            report = await self._competitor_service.analyse(business, lead_quality)
+            results["competitor"] = self._competitor_service.to_audit_result(report)
+            opportunity = apply_competitive_pressure(opportunity, report.competitive_pressure)
+
         notes = self._combined_notes(results)
         audit_id = await self._persist(business, crawl, results, opportunity, notes)
         return LeadOutcome(
@@ -103,6 +115,13 @@ class LeadPipeline:
             audit_id=audit_id,
             notes=notes,
         )
+
+    @staticmethod
+    def _quality_ratio(result: AuditResult | None) -> float | None:
+        if result is None:
+            return None
+        value, mx = result.total()
+        return (value / mx) if mx else None
 
     @staticmethod
     def _combined_notes(results: dict[str, AuditResult]) -> str:

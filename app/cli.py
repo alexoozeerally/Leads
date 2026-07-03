@@ -10,10 +10,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+from app.agents.auditor import WebsiteAuditor
 from app.business_providers.factory import get_provider
 from app.config.logging import get_logger
 from app.config.settings import get_settings
+from app.crawler.crawler import WebsiteCrawler
 from app.schemas.business import DiscoveryQuery
+from app.services.competitor import CompetitorService
 from app.services.fixture_server import serve_distinct_sites
 from app.services.pipeline import LeadPipeline
 
@@ -56,14 +59,29 @@ async def _run_sample() -> int:
     # they stay distinct records — as real businesses on separate domains would.
     with_sites = [b for b in businesses if b.website]
     home_files = [b.website.lstrip("/") for b in with_sites]
-    with serve_distinct_sites(home_files) as base_urls:
+    with (
+        serve_distinct_sites(home_files) as base_urls,
+        serve_distinct_sites(["modern.html"]) as (competitor_base,),
+    ):
         for biz, base_url in zip(with_sites, base_urls, strict=True):
             biz.website = f"{base_url}/{biz.website.lstrip('/')}"
+
+        # Competitor sites are discovered fresh from the CSV as bare filenames;
+        # resolve them onto a shared fixture server so they can be audited too.
+        def resolve(raw: str) -> str:
+            return raw if raw.startswith("http") else f"{competitor_base}/{raw.lstrip('/')}"
+
+        competitor_service = CompetitorService(
+            provider=get_provider("csv", settings),
+            crawler=WebsiteCrawler(settings),
+            auditor=WebsiteAuditor(settings=settings, check_links=False),
+            website_resolver=resolve,
+        )
         print(
             f"Serving {len(with_sites)} fixture sites on localhost and running the "
             f"pipeline (anthropic={'live' if settings.anthropic_enabled else 'mock'})...\n"
         )
-        pipeline = LeadPipeline(provider=provider)
+        pipeline = LeadPipeline(provider=provider, competitor_service=competitor_service)
         result = await pipeline.process_all(businesses)
 
     _print_summary(result)

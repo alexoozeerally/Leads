@@ -63,13 +63,25 @@ class CSVBusinessProvider(BusinessProvider):
             return None
         return Business(**data)
 
+    @staticmethod
+    def _outward_code(postcode: str | None) -> str:
+        """The UK postcode 'outward code' (area+district), e.g. 'BS8 2QN' -> 'bs8'."""
+        if not postcode:
+            return ""
+        return postcode.strip().split(" ")[0].lower()
+
     def _matches(self, biz: Business, query: DiscoveryQuery) -> bool:
-        """Light client-side filter: industry substring + optional postcode/town."""
+        """Light client-side filter: industry substring + optional postcode/town.
+
+        Postcode is matched by *outward code* (the area), which is the sensible
+        interpretation of "near postcode X" for a flat dataset — a full-postcode
+        exact match would wrongly exclude neighbouring businesses.
+        """
         hay = " ".join(filter(None, [biz.category, biz.name, biz.address, biz.postcode])).lower()
         if query.industry and query.industry.lower() not in hay:
             return False
-        if query.postcode and query.postcode.replace(" ", "").lower() not in (
-            (biz.postcode or "").replace(" ", "").lower()
+        if query.postcode and self._outward_code(query.postcode) != self._outward_code(
+            biz.postcode
         ):
             return False
         if query.town and query.town.lower() not in hay:

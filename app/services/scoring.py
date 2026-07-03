@@ -52,3 +52,18 @@ def opportunity_from_results(state: WebsiteState, results: dict[str, AuditResult
 
     quality_ratio = total_value / total_max  # 0..1, higher = better site
     return round((1.0 - quality_ratio) * 100.0, 1)
+
+
+# How much competitive pressure (0–1) can move the opportunity score, in points.
+COMPETITIVE_WEIGHT = 15.0
+
+
+def apply_competitive_pressure(base_opportunity: float, pressure: float) -> float:
+    """Nudge the opportunity score up when the lead is behind its competitors.
+
+    Being behind the local field makes a redesign more compelling (and easier to
+    sell), so pressure raises opportunity — bounded so it never dominates the
+    website-quality signal.
+    """
+    adjusted = base_opportunity + max(0.0, min(1.0, pressure)) * COMPETITIVE_WEIGHT
+    return round(min(100.0, adjusted), 1)

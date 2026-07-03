@@ -258,3 +258,57 @@ Verified here: Clifton (modern) → GBP reviews 9.3/10 (215 reviews, 4.3★), NA
 complete, category set, `opening_hours` = unknown; social = facebook+instagram
 detected, four networks unknown. Harbourside (no site) → social cleanly
 "unknown". Opportunity scores unchanged from Phase 2 (GBP/social excluded).
+
+---
+
+## Phase 4 — Competitor analysis ✅
+
+**Built**
+
+- **`CompetitorService`** (`app/services/competitor.py`) — for each lead:
+  discovers nearby same-industry competitors **through the same provider
+  interface** (never a hardcoded source), optionally crawls + audits their
+  websites, and compares the lead on **website quality, reviews, and web
+  presence**. Produces a `CompetitorReport` with review rank, website-quality
+  standing, strengths, weaknesses, **exactly three concrete personalised sales
+  opportunities** (each grounded in an observed gap), and a `competitive_pressure`
+  (0–1).
+- **Feeds the score.** `apply_competitive_pressure` raises the opportunity score
+  when the lead is behind its local field (bounded to ±15 pts), so competitor
+  analysis **measurably influences** the ranking without dominating the
+  website-quality signal.
+- **No fabrication.** A competitor whose website isn't assessed contributes
+  `website_quality = None` (unknown) and is excluded from quality averages.
+- **CSV provider** now matches postcodes by **outward code** (area) — the honest
+  reading of "near postcode X" for a flat dataset. Sample CSV expanded to 9
+  businesses (3 dentists, 3 barbers) so competitors genuinely exist.
+- `run-sample` wires the competitor service with a shared fixtures server + a
+  URL resolver so competitor sites are crawled and audited for real.
+- Dashboard: a **Competitor analysis** section (standing, strengths/weaknesses,
+  the three opportunities).
+- **+9 tests (73 total):** no-competitors path, ranking + 3-opportunity
+  generation, leader strengths/low-pressure, self-exclusion, website-gap
+  weakness (stubbed audit), unknown-quality-when-not-audited, and CSV
+  outward-code matching. All offline.
+
+**Key decisions**
+
+- **Competitor discovery reuses the provider interface**, upholding the "adding
+  a data source = one class" rule and the no-Google-scraping constraint.
+- **Three opportunities always, but never padded with fluff** — real gaps first
+  (website quality, reviews), topped up only with concrete, defensible next
+  steps (click-to-call, local service pages, trust signals) when a lead already
+  leads its field.
+
+**How to verify**
+
+```bash
+uv run leadfinder run-sample     # each lead gets a competitor comparison
+uv run pytest -q                 # 73 passed, offline
+```
+
+Verified here: City Smile Dental (dated site, 45 reviews) ranked **3 of 3** by
+reviews, website **47% vs 66%** competitor average → surfaced a website-gap
+weakness and three concrete opportunities, and its opportunity score rose to
+**61.5** (competitive pressure 0.335). Clifton (strong site, 215 reviews) showed
+three strengths, zero weaknesses, pressure 0.0 — a faithful competitive picture.
