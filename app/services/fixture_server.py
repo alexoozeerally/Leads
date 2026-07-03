@@ -25,6 +25,10 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 
+from app.config.logging import get_logger
+
+log = get_logger(__name__)
+
 FIXTURE_SITES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures" / "sites"
 
 _cert_cache: tuple[str, str] | None = None
@@ -37,7 +41,11 @@ def _free_port() -> int:
 
 
 def _self_signed_cert() -> tuple[str, str]:
-    """Generate (once) a throwaway self-signed cert; return (cert_path, key_path)."""
+    """Generate (once) a throwaway self-signed cert; return (cert_path, key_path).
+
+    Raises if OpenSSL isn't available (e.g. a stock Windows box) so callers can
+    fall back to plain HTTP.
+    """
     global _cert_cache
     if _cert_cache is not None:
         return _cert_cache
@@ -65,6 +73,15 @@ def _self_signed_cert() -> tuple[str, str]:
     )
     _cert_cache = (str(cert), str(key))
     return _cert_cache
+
+
+def _tls_available() -> bool:
+    """Whether we can serve HTTPS (i.e. OpenSSL can generate a cert)."""
+    try:
+        _self_signed_cert()
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 class _FixtureHandler(http.server.SimpleHTTPRequestHandler):
@@ -109,6 +126,13 @@ def serve_distinct_sites(
     how real businesses live on separate domains. Returns the base URLs.
     """
     directory = directory or FIXTURE_SITES_DIR
+    # Fall back to plain HTTP when OpenSSL isn't available (e.g. stock Windows),
+    # so the offline demo still runs everywhere. Security scores for the local
+    # fixtures then reflect HTTP; real crawls (the `discover` command) are
+    # unaffected.
+    if tls and not _tls_available():
+        log.warning("fixture_server.no_openssl", detail="serving fixtures over HTTP")
+        tls = False
     scheme = "https" if tls else "http"
     servers: list[http.server.ThreadingHTTPServer] = []
     urls: list[str] = []
