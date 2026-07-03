@@ -79,9 +79,10 @@ def _render_lead(lead: LeadRow) -> None:
 
 def _render_audit_report(lead: LeadRow) -> None:
     """Show the full technical + visual audit: every category with its rationale."""
-    auditor = (lead.module_results or {}).get("auditor", {})
-    vision = (lead.module_results or {}).get("vision", {})
-    if not auditor and not vision:
+    mr = lead.module_results or {}
+    auditor, vision = mr.get("auditor", {}), mr.get("vision", {})
+    gbp, social = mr.get("gbp", {}), mr.get("social", {})
+    if not any([auditor, vision, gbp, social]):
         return
     with st.expander("📋 Full audit report (every score has a rationale)"):
         if auditor.get("scores"):
@@ -92,15 +93,31 @@ def _render_audit_report(lead: LeadRow) -> None:
             st.markdown("**Visual / design audit** _(vision)_")
             for cat, entry in vision["scores"].items():
                 _render_score_row(cat.replace("_", " ").title(), entry)
+        _render_context_section("Google Business Profile", gbp)
+        _render_context_section("Social presence", social)
+
+
+def _render_context_section(title: str, result: dict) -> None:
+    """Render a data-available-only section (GBP / social), showing unknowns."""
+    if not result:
+        return
+    st.markdown(f"**{title}**")
+    if result.get("notes"):
+        st.caption(result["notes"])
+    for cat, entry in (result.get("scores") or {}).items():
+        _render_score_row(cat.replace("_", " ").title(), entry)
+    unknown = (result.get("raw") or {}).get("unknown") or []
+    if unknown:
+        st.markdown(
+            "- _Unknown (not fabricated): " + ", ".join(u.replace("_", " ") for u in unknown) + "_"
+        )
 
 
 def _render_score_row(label: str, entry: dict) -> None:
     value, mx = entry.get("value", 0), entry.get("max", 10)
     ratio = value / mx if mx else 0
     colour = "red" if ratio < 0.4 else ("orange" if ratio < 0.7 else "green")
-    st.markdown(
-        f"- **{label}** · :{colour}[{value:.1f}/{mx:.0f}] — {entry.get('explanation', '')}"
-    )
+    st.markdown(f"- **{label}** · :{colour}[{value:.1f}/{mx:.0f}] — {entry.get('explanation', '')}")
 
 
 def main() -> None:

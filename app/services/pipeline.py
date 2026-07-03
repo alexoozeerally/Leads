@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 
 from app.agents.auditor import WebsiteAuditor
 from app.agents.base import AuditModule
+from app.agents.gbp import GBPAgent
 from app.agents.llm_client import LLMClient, get_llm_client
+from app.agents.social import SocialAgent
 from app.agents.vision import VisionAgent
 from app.business_providers.base import BusinessProvider
 from app.business_providers.factory import get_provider
@@ -68,8 +70,14 @@ class LeadPipeline:
         self._provider = provider or get_provider()
         self._crawler = crawler or WebsiteCrawler()
         client = llm_client or get_llm_client()
-        # Default audit modules: full technical audit + visual (vision) analysis.
-        self._modules = modules or [WebsiteAuditor(), VisionAgent(client=client)]
+        # Default audit modules: technical audit + visual (vision) analysis +
+        # data-available-only GBP and social presence.
+        self._modules = modules or [
+            WebsiteAuditor(),
+            VisionAgent(client=client),
+            GBPAgent(),
+            SocialAgent(),
+        ]
 
     async def discover(self, query: DiscoveryQuery) -> list[Business]:
         businesses = await self._provider.search(query)

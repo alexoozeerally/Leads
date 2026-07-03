@@ -213,3 +213,48 @@ Verified here: the modern dental fixture scored security 10, mobile 10,
 navigation 10, SEO 8, broken-links 10/10; the dated barber fixture scored
 security 0 (HTTP), mobile 1 (no viewport), navigation 2, CTA 1 — each with a
 written rationale. Ranking is faithful (best site = lowest opportunity).
+
+---
+
+## Phase 3 — Google Business Profile & social (data-available-only) ✅
+
+**Built**
+
+- **`GBPAgent`** (`app/agents/gbp.py`) — analyses GBP-style fields the provider
+  surfaced (rating, review count, opening hours, NAP, website link, category).
+  Present fields are scored with evidence; **every absent field is reported as
+  "unknown" and never fabricated**. No Google scraping (against ToS) — we only
+  read what the provider/crawl already gave us.
+- **`SocialAgent`** (`app/agents/social.py`) — detects social profiles across
+  facebook / instagram / twitter-x / linkedin / youtube / tiktok by combining
+  the provider's `social_links` with links found on the crawled site. Present
+  networks are listed; absent ones are explicitly "unknown". No data → cleanly
+  "no social profiles found (unknown)", contributing no scores.
+- **Opportunity scoring scoped** to the website-quality modules only
+  (`QUALITY_MODULES = auditor, vision`). GBP/social are informational context
+  and must not distort "how weak is the website" — they feed the full LeadScore
+  in Phase 5.
+- Both modules wired into the pipeline; dashboard audit report gained
+  **Google Business Profile** and **Social presence** sections that list scores
+  and explicitly show the "Unknown (not fabricated)" fields.
+- **+6 tests (66 total):** GBP scores present fields and marks the rest unknown;
+  reports unavailable with no data; social detects from provider+crawl and marks
+  absent networks unknown; and scoring proves GBP/social don't move opportunity.
+
+**Key decisions**
+
+- **Unknown is structurally impossible to fake.** Absent fields never receive a
+  score; they are recorded in `raw["unknown"]` and surfaced in the UI as
+  "Unknown (not fabricated)". This makes the guarantee visible, not just claimed.
+
+**How to verify**
+
+```bash
+uv run leadfinder run-sample     # GBP/social populate where data exists
+uv run pytest -q                 # 66 passed, offline
+```
+
+Verified here: Clifton (modern) → GBP reviews 9.3/10 (215 reviews, 4.3★), NAP
+complete, category set, `opening_hours` = unknown; social = facebook+instagram
+detected, four networks unknown. Harbourside (no site) → social cleanly
+"unknown". Opportunity scores unchanged from Phase 2 (GBP/social excluded).

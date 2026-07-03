@@ -32,3 +32,23 @@ def test_poor_site_scores_higher_than_good_site():
 
 def test_no_measurable_scores_is_neutral():
     assert opportunity_from_results(WebsiteState.OK, {}) == 50.0
+
+
+def test_gbp_and_social_do_not_affect_opportunity():
+    # A strong GBP/social presence must not lower the website opportunity score;
+    # only auditor+vision quality drives it.
+    base = _audit(0.2)  # a poor site
+    with_context = {
+        **base,
+        "gbp": AuditResult(
+            module="gbp",
+            scores={"reviews": ScoreEntry(value=10, max=10, explanation="great reviews")},
+        ),
+        "social": AuditResult(
+            module="social",
+            scores={"presence": ScoreEntry(value=10, max=10, explanation="lots of socials")},
+        ),
+    }
+    assert opportunity_from_results(WebsiteState.OK, base) == opportunity_from_results(
+        WebsiteState.OK, with_context
+    )
