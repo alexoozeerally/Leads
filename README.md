@@ -13,6 +13,10 @@ outreach **for human review before sending**.
    OpenStreetMap/Overpass — no paid keys required).
 2. **Crawl** each website with a polite, `robots.txt`-respecting Playwright
    crawler that renders JS and captures desktop + mobile screenshots.
+   Each lead also gets a **"still trading?" verdict** (active / likely closed /
+   unknown) from its live web presence, so closed-down businesses are flagged
+   and can be filtered out — a live site is the honest "still open" signal (we
+   never scrape Google, which would break its ToS).
 3. **Audit** the site with AI agents (vision, technical auditor, GBP, social,
    competitor) — every score carries a human-readable explanation.
 4. **Score** each lead (opportunity, budget, project value, likelihood,
@@ -58,6 +62,21 @@ docker compose -f docker/docker-compose.yml up --build
 uv run leadfinder run-sample
 # or:  make run-sample
 ```
+
+### Targeting live-but-poor sites (and skipping closed businesses)
+
+Directory data (OSM) often lists businesses that have since closed. To focus on
+firms you can **verify are still trading** and that have a **bad but live**
+website — the sweet spot for a redesign pitch — add `--has-website`:
+
+```bash
+uv run leadfinder discover "Plumber" --postcode "BS8 2QN" --has-website
+```
+
+This skips businesses with no website at all. In the dashboard, **likely-closed
+leads are hidden by default** (a parked domain or a listed site that no longer
+loads), and an **"Only firms with a live website"** filter narrows to verified-
+active leads. Every lead shows its trading verdict with the evidence behind it.
 
 Then open the Streamlit dashboard:
 

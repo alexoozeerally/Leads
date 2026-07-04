@@ -41,6 +41,12 @@ STATE_BADGES = {
     "unknown": "❔ Unknown",
 }
 
+TRADING_BADGES = {
+    "active": "✅ Active (website is live)",
+    "likely_closed": "⚠️ Likely closed",
+    "unknown": "❔ Trading status unverified",
+}
+
 
 def _priority_colour(score: float | None) -> str:
     if score is None:
@@ -65,6 +71,10 @@ def _render_lead(lead: LeadRow) -> None:
         )
         badge = STATE_BADGES.get(lead.website_state, lead.website_state)
         st.markdown(f"**Website state:** {badge}")
+        trading = TRADING_BADGES.get(lead.trading_status, lead.trading_status)
+        st.markdown(f"**Still trading?** {trading}")
+        if lead.trading_reason:
+            st.caption(lead.trading_reason)
         if lead.website:
             st.markdown(f"**Website:** {lead.website}")
         # Contact details — how you actually reach the lead once approved.
@@ -235,12 +245,24 @@ def _sidebar_filter(leads: list[LeadRow]) -> LeadFilter:
     priorities = st.sidebar.multiselect("Priority", ["Hot", "Warm", "Cold"])
     min_score = st.sidebar.slider("Minimum opportunity score", 0, 100, 0)
     only_draft = st.sidebar.checkbox("Only leads with a draft", value=False)
+    hide_closed = st.sidebar.checkbox(
+        "Hide likely-closed businesses",
+        value=True,
+        help="Hides firms whose domain is parked or whose listed website no longer loads.",
+    )
+    only_live = st.sidebar.checkbox(
+        "Only firms with a live website",
+        value=False,
+        help="Businesses with a working (but poor) site — verified as still trading.",
+    )
     sort = st.sidebar.selectbox("Sort by", list(SORT_OPTIONS))
     return LeadFilter(
         search=search,
         priorities=tuple(priorities),
         min_score=float(min_score),
         only_with_draft=only_draft,
+        hide_likely_closed=hide_closed,
+        only_live_site=only_live,
         sort=sort,
     )
 

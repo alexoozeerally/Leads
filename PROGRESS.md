@@ -450,10 +450,55 @@ flips `OutreachDraft.approved` in the DB (Phase 5 test).
 
 ---
 
+## Phase 8 — Trading status (skip closed businesses) ✅
+
+**Why**: directory listings (especially OSM) keep businesses long after they
+close, so the top "opportunities" were often defunct firms. This phase judges
+whether each lead is **still trading** and lets closed ones be filtered out,
+while surfacing the ideal case — a firm that is clearly active but has a **bad
+but live website**.
+
+**Built**
+
+- **`app/services/trading_status.py`** — `assess_trading(website_listed, state)`
+  → `TradingStatus` (active / likely_closed / unknown) + an evidence-based
+  reason. The honest, ToS-clean "still open" signal is **website liveness**
+  (we never scrape Google):
+  - live site (`ok`) → **active**;
+  - parked/for-sale domain, or a listed site that no longer loads
+    (`broken`/`redirect_loop`/`no_site` with a URL listed) → **likely closed**;
+  - responds-but-neglected (`under_construction`/`invalid_ssl`) or no website at
+    all → **unknown** (never a fabricated verdict).
+- **`LeadScore`** gains `trading_status` + `trading_reason`, populated by the
+  `LeadScorer` (with a matching rationale entry). Persisted in the score payload.
+- **Pipeline `require_website` mode** — skips businesses with no website listed
+  *before* crawling; exposed as `leadfinder discover … --has-website` to target
+  live-but-poor sites. Pipeline summary now tags each lead active/closed/unknown.
+- **Dashboard** — each lead shows a "Still trading?" badge + reason; sidebar
+  gains **"Hide likely-closed businesses"** (on by default) and **"Only firms
+  with a live website"**. CSV export gains a `trading_status` column.
+- **+10 tests (113 total):** the full trading-status matrix, the `--has-website`
+  skip path, and the two new dashboard filters + export column. All offline.
+
+**How to verify**
+
+```bash
+uv run leadfinder discover "Plumber" --postcode "BS8 2QN" --has-website
+uv run leadfinder run-sample     # summary tags each lead ✅ active / ⚠ likely closed / ❔ unknown
+uv run pytest -q                 # 113 passed, offline
+```
+
+Verified here: `run-sample` tagged the eight live-site leads **✅ active** and the
+no-site / under-construction leads **❔ unknown** (honest — no live site to
+confirm). The live-but-poor sites (e.g. City Smile Dental, Old City Barbers)
+rank in the actionable middle of the list.
+
+---
+
 ## Overall status
 
-All seven phases are complete, verified, and committed. The product runs
-end-to-end at every checkpoint; the test suite (**101 tests**) is green offline
+All eight phases are complete, verified, and committed. The product runs
+end-to-end at every checkpoint; the test suite (**113 tests**) is green offline
 with no API keys, network, or Postgres; Ruff + Black are clean. No data is
 fabricated anywhere — unknowns stay unknown and every score carries its
 evidence. Drafts are never sent; a human approves.

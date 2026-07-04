@@ -20,6 +20,8 @@ class LeadFilter:
     priorities: tuple[str, ...] = ()
     min_score: float = 0.0
     only_with_draft: bool = False
+    hide_likely_closed: bool = True  # closed businesses are dead leads — hidden by default
+    only_live_site: bool = False  # only firms with a live (but poor) website
     sort: str = "Opportunity (high→low)"
 
 
@@ -46,6 +48,10 @@ def apply_filter(leads: list[LeadRow], f: LeadFilter) -> list[LeadRow]:
         if (lead.opportunity_score or 0) < f.min_score:
             continue
         if f.only_with_draft and not lead.draft:
+            continue
+        if f.hide_likely_closed and lead.trading_status == "likely_closed":
+            continue
+        if f.only_live_site and lead.website_state != "ok":
             continue
         out.append(lead)
 

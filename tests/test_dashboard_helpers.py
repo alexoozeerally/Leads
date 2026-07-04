@@ -10,7 +10,16 @@ from app.dashboard.export import EXPORT_COLUMNS, leads_to_csv
 from app.dashboard.filters import LeadFilter, apply_filter
 
 
-def _lead(name, score, priority="Warm", category="Dentist", postcode="BS8 2QN", draft=None):
+def _lead(
+    name,
+    score,
+    priority="Warm",
+    category="Dentist",
+    postcode="BS8 2QN",
+    draft=None,
+    website_state="ok",
+    trading_status="active",
+):
     return LeadRow(
         business_id=1,
         name=name,
@@ -19,12 +28,13 @@ def _lead(name, score, priority="Warm", category="Dentist", postcode="BS8 2QN", 
         postcode=postcode,
         email=f"hello@{name.lower().replace(' ', '')}.example",
         phone="0117 900 0000",
-        website_state="ok",
+        website_state=website_state,
         opportunity_score=score,
         notes="",
         desktop_screenshot=None,
         mobile_screenshot=None,
         module_results={},
+        trading_status=trading_status,
         lead_score={"priority": priority, "likelihood_of_purchase": score / 100, "summary": "s"},
         draft=draft,
     )
@@ -67,6 +77,35 @@ def test_priority_and_min_score_filters():
 def test_only_with_draft_filter():
     out = apply_filter(_leads(), LeadFilter(only_with_draft=True))
     assert [le.name for le in out] == ["Gamma Cafe"]
+
+
+def test_hide_likely_closed_is_default():
+    leads = [
+        _lead("Open Dental", 80, "Hot", trading_status="active"),
+        _lead("Gone Barbers", 90, "Hot", trading_status="likely_closed", website_state="parked"),
+    ]
+    # Default filter hides likely-closed businesses.
+    out = apply_filter(leads, LeadFilter())
+    assert [le.name for le in out] == ["Open Dental"]
+    # Opt back in to see them.
+    out = apply_filter(leads, LeadFilter(hide_likely_closed=False))
+    assert {le.name for le in out} == {"Open Dental", "Gone Barbers"}
+
+
+def test_only_live_site_filter():
+    leads = [
+        _lead("Live Poor Site", 70, website_state="ok", trading_status="active"),
+        _lead("No Site", 90, website_state="no_site", trading_status="unknown"),
+    ]
+    out = apply_filter(leads, LeadFilter(only_live_site=True))
+    assert [le.name for le in out] == ["Live Poor Site"]
+
+
+def test_trading_status_in_csv_export():
+    text = leads_to_csv([_lead("Alpha Dental", 80, trading_status="active")])
+    reader = list(csv.DictReader(io.StringIO(text)))
+    assert "trading_status" in reader[0]
+    assert reader[0]["trading_status"] == "active"
 
 
 def test_sort_orders():

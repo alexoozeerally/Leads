@@ -34,6 +34,8 @@ class LeadRow:
     desktop_screenshot: str | None
     mobile_screenshot: str | None
     module_results: dict
+    trading_status: str = "unknown"  # active | likely_closed | unknown
+    trading_reason: str = ""
     lead_score: dict | None = None  # full LeadScore payload
     draft: dict | None = (
         None  # {id, subject, email_body, follow_up, linkedin, lawful_basis, approved}
@@ -107,6 +109,8 @@ async def _fetch_latest_leads() -> list[LeadRow]:
                     desktop_screenshot=desktop,
                     mobile_screenshot=mobile,
                     module_results=module_results,
+                    trading_status=(lead_score_payload or {}).get("trading_status", "unknown"),
+                    trading_reason=(lead_score_payload or {}).get("trading_reason", ""),
                     lead_score=lead_score_payload,
                     draft=draft_payload,
                 )

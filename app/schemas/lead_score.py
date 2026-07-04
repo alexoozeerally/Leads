@@ -38,5 +38,12 @@ class LeadScore(BaseModel):
     estimated_project_value: str | None = None
     likelihood_of_purchase: float = Field(..., ge=0, le=1)
     priority: Priority
+    trading_status: str = Field(
+        default="unknown",
+        description="Whether the business is still trading: active | likely_closed | unknown.",
+    )
+    trading_reason: str = Field(
+        default="", description="Evidence behind the trading-status verdict."
+    )
     rationale: list[Deduction] = Field(default_factory=list)
     summary: str = ""

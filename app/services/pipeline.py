@@ -53,6 +53,7 @@ class LeadOutcome:
     notes: str = ""
     priority: str = ""
     has_draft: bool = False
+    trading_status: str = "unknown"
     skipped: bool = False
     reason: str = ""
 
@@ -61,6 +62,12 @@ class LeadOutcome:
 class PipelineResult:
     outcomes: list[LeadOutcome] = field(default_factory=list)
 
+    _TRADING_TAG = {
+        "active": "✅ active",
+        "likely_closed": "⚠ likely closed",
+        "unknown": "❔ unknown",
+    }
+
     def summary_lines(self) -> list[str]:
         lines = []
         for o in sorted(self.outcomes, key=lambda x: x.opportunity_score, reverse=True):
@@ -68,9 +75,10 @@ class PipelineResult:
                 lines.append(f"  [ skip ] —     {o.business.name}  — {o.reason}")
                 continue
             draft = "✍ draft" if o.has_draft else "—"
+            trading = self._TRADING_TAG.get(o.trading_status, o.trading_status)
             lines.append(
                 f"  [{o.opportunity_score:5.1f}] {o.priority or '?':4s}  {o.business.name}  "
-                f"— {o.state.value}  ({draft})"
+                f"— {o.state.value}  ·  {trading}  ({draft})"
             )
         return lines
 
@@ -97,7 +105,9 @@ class LeadPipeline:
         scorer: LeadScorer | None = None,
         email_generator: EmailGenerator | None = None,
         generate_outreach: bool = True,
+        require_website: bool = False,
     ) -> None:
+        self._require_website = require_website
         self._provider = provider or get_provider()
         self._crawler = crawler or WebsiteCrawler()
         client = llm_client or get_llm_client()
@@ -125,6 +135,18 @@ class LeadPipeline:
         return businesses
 
     async def process_business(self, business: Business, *, force: bool = False) -> LeadOutcome:
+        # "Has a website but a bad one" mode: skip businesses with no website
+        # listed at all (cheap, before crawling). These are exactly the leads we
+        # can verify are trading — a live site is the honest 'still open' signal.
+        if self._require_website and not (business.website or "").strip():
+            return LeadOutcome(
+                business=business,
+                state=WebsiteState.NO_SITE,
+                opportunity_score=0.0,
+                skipped=True,
+                reason="no website listed (--has-website filter)",
+            )
+
         # De-duplication / re-audit window: skip businesses audited recently.
         decision = await self._check_freshness(business, force)
         if not decision.should_audit:
@@ -184,6 +206,7 @@ class LeadPipeline:
             notes=notes,
             priority=lead_score.priority.value,
             has_draft=draft is not None,
+            trading_status=lead_score.trading_status,
         )
 
     async def _check_freshness(self, business: Business, force: bool) -> FreshnessDecision:

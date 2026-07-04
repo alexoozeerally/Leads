@@ -83,6 +83,31 @@ async def test_pipeline_persists_businesses_audits_screenshots(db_engine, tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_require_website_skips_no_site_businesses(db_engine):
+    """--has-website mode targets firms with a (live-but-poor) site to pitch."""
+    good = Business(name="Good Co", source_provider="fake", website="https://good.example")
+    nosite = Business(name="No Web Co", source_provider="fake")
+    crawl_map = {
+        "https://good.example": CrawlResult(
+            url="https://good.example", state=WebsiteState.OK, status_code=200, text="hello world"
+        ),
+    }
+    pipeline = LeadPipeline(
+        provider=FakeProvider([good, nosite]),
+        crawler=FakeCrawler(crawl_map),
+        modules=[VisionAgent(client=MockLLMClient())],
+        generate_outreach=False,
+        require_website=True,
+    )
+    result = await pipeline.process_all([good, nosite])
+    by_name = {o.business.name: o for o in result.outcomes}
+    assert by_name["No Web Co"].skipped is True
+    assert "no website" in by_name["No Web Co"].reason.lower()
+    assert by_name["Good Co"].skipped is False
+    assert by_name["Good Co"].trading_status == "active"  # live site => verified active
+
+
+@pytest.mark.asyncio
 async def test_pipeline_reaudit_increments_version(db_engine, tmp_path):
     biz = Business(name="Repeat Co", source_provider="fake", website="https://repeat.example")
     crawl_map = {

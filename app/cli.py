@@ -33,7 +33,12 @@ def _print_summary(result) -> None:
     print("\nDone. Open the dashboard:  uv run streamlit run app/dashboard/streamlit_app.py")
 
 
-async def _run(query: DiscoveryQuery, provider: str | None, force: bool = False) -> int:
+async def _run(
+    query: DiscoveryQuery,
+    provider: str | None,
+    force: bool = False,
+    require_website: bool = False,
+) -> int:
     settings = get_settings()
     active_provider = get_provider(provider, settings)
     # Real leads get competitor analysis too: rivals are discovered via the same
@@ -43,7 +48,11 @@ async def _run(query: DiscoveryQuery, provider: str | None, force: bool = False)
         crawler=WebsiteCrawler(settings),
         auditor=WebsiteAuditor(settings=settings, check_links=False),
     )
-    pipeline = LeadPipeline(provider=active_provider, competitor_service=competitor_service)
+    pipeline = LeadPipeline(
+        provider=active_provider,
+        competitor_service=competitor_service,
+        require_website=require_website,
+    )
     print(
         f"Running pipeline (provider={provider or settings.business_provider}, "
         f"anthropic={'live' if settings.anthropic_enabled else 'mock'}, force={force})...\n"
@@ -138,6 +147,12 @@ def main() -> None:
     disc.add_argument("--limit", type=int, default=25)
     disc.add_argument("--provider", default=None, help="csv | osm (default: configured)")
     disc.add_argument("--force", action="store_true", help="Re-audit even if fresh.")
+    disc.add_argument(
+        "--has-website",
+        action="store_true",
+        help="Only businesses that list a website (targets live-but-poor sites you can "
+        "verify are still trading).",
+    )
 
     sched = sub.add_parser("schedule", help="Run discovery on a repeating interval.")
     sched.add_argument("industry")
@@ -164,7 +179,16 @@ def main() -> None:
             radius_km=args.radius_km,
             limit=args.limit,
         )
-        raise SystemExit(asyncio.run(_run(query, provider=args.provider, force=args.force)))
+        raise SystemExit(
+            asyncio.run(
+                _run(
+                    query,
+                    provider=args.provider,
+                    force=args.force,
+                    require_website=args.has_website,
+                )
+            )
+        )
 
     if args.command == "schedule":
         query = DiscoveryQuery(

@@ -14,6 +14,7 @@ from app.schemas.audit import AuditResult, WebsiteState
 from app.schemas.business import Business
 from app.schemas.competitor import CompetitorReport
 from app.schemas.lead_score import Deduction, LeadScore, Priority
+from app.services.trading_status import assess_trading
 
 # Budget/value bands keyed by the kind of engagement the evidence implies.
 # These are transparent estimates, not quotes — each is attached to a rationale.
@@ -57,6 +58,12 @@ class LeadScorer:
                 )
             )
 
+        # --- Still trading? (a closed business is a dead lead) ---------------
+        trading = assess_trading(website_listed=bool(business.website), state=website_state)
+        rationale.append(
+            Deduction(dimension="trading_status", points=0.0, rationale=trading.reason)
+        )
+
         # --- Reachability (affects likelihood, not need) ---------------------
         contactable = self._is_contactable(business, results)
 
@@ -81,6 +88,8 @@ class LeadScorer:
             estimated_project_value=project_value,
             likelihood_of_purchase=round(likelihood, 2),
             priority=priority,
+            trading_status=trading.status.value,
+            trading_reason=trading.reason,
             rationale=rationale
             + [
                 Deduction(dimension="budget", points=0.0, rationale=band_reason),
