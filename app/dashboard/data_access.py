@@ -26,6 +26,8 @@ class LeadRow:
     category: str | None
     website: str | None
     postcode: str | None
+    email: str | None
+    phone: str | None
     website_state: str
     opportunity_score: float | None
     notes: str
@@ -97,6 +99,8 @@ async def _fetch_latest_leads() -> list[LeadRow]:
                     category=biz.category,
                     website=biz.website,
                     postcode=biz.postcode,
+                    email=biz.email,
+                    phone=biz.phone,
                     website_state=state,
                     opportunity_score=opportunity,
                     notes=notes,

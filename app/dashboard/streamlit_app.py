@@ -67,6 +67,16 @@ def _render_lead(lead: LeadRow) -> None:
         st.markdown(f"**Website state:** {badge}")
         if lead.website:
             st.markdown(f"**Website:** {lead.website}")
+        # Contact details — how you actually reach the lead once approved.
+        contact_bits = []
+        if lead.email:
+            contact_bits.append(f"📧 {lead.email}")
+        if lead.phone:
+            contact_bits.append(f"📞 {lead.phone}")
+        if contact_bits:
+            st.markdown("**Contact:** " + "  ·  ".join(contact_bits))
+        else:
+            st.markdown("**Contact:** _no email/phone published — check their website or call_")
         if lead.notes:
             st.markdown(f"> {lead.notes}")
     with right:
