@@ -35,7 +35,15 @@ def _print_summary(result) -> None:
 
 async def _run(query: DiscoveryQuery, provider: str | None, force: bool = False) -> int:
     settings = get_settings()
-    pipeline = LeadPipeline(provider=get_provider(provider, settings))
+    active_provider = get_provider(provider, settings)
+    # Real leads get competitor analysis too: rivals are discovered via the same
+    # provider and their live websites are audited directly (no URL rewriting).
+    competitor_service = CompetitorService(
+        provider=get_provider(provider, settings),
+        crawler=WebsiteCrawler(settings),
+        auditor=WebsiteAuditor(settings=settings, check_links=False),
+    )
+    pipeline = LeadPipeline(provider=active_provider, competitor_service=competitor_service)
     print(
         f"Running pipeline (provider={provider or settings.business_provider}, "
         f"anthropic={'live' if settings.anthropic_enabled else 'mock'}, force={force})...\n"
