@@ -75,7 +75,7 @@ def _render_lead(lead: LeadRow) -> None:
             cols = st.columns(len(shots))
             for col, path in zip(cols, shots, strict=True):
                 if Path(path).exists():
-                    col.image(path, use_container_width=True)
+                    col.image(path, width="stretch")
                 else:
                     col.info("Screenshot file missing.")
         else:
