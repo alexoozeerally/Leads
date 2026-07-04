@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     business_provider: str = Field(default="csv", description="Active provider: csv | osm")
     csv_provider_path: str = "tests/fixtures/sample_businesses.csv"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
+    nominatim_url: str = "https://nominatim.openstreetmap.org/search"
 
     # --- Crawler / compliance ------------------------------------------------
     crawler_user_agent: str = (

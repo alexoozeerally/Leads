@@ -53,7 +53,14 @@ def _register_builtins() -> None:
     try:
         from app.business_providers.osm_provider import OSMBusinessProvider
 
-        register_provider("osm", lambda s: OSMBusinessProvider(s.overpass_url))
+        register_provider(
+            "osm",
+            lambda s: OSMBusinessProvider(
+                s.overpass_url,
+                nominatim_url=s.nominatim_url,
+                user_agent=s.crawler_user_agent,
+            ),
+        )
     except ImportError:
         pass
 
