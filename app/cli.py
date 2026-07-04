@@ -66,6 +66,19 @@ async def _schedule(query: DiscoveryQuery, provider: str | None, interval: int, 
     return 0
 
 
+async def _reset() -> int:
+    """Delete all discovered leads, audits, screenshots, and drafts."""
+    from app.database.models import Base
+    from app.database.session import get_engine
+
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    print("Cleared all leads. The database is now empty — run `discover` to add real ones.")
+    return 0
+
+
 async def _run_sample() -> int:
     """End-to-end demo: serve fixture sites locally and audit them for real."""
     settings = get_settings()
@@ -114,6 +127,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("run-sample", help="Ingest the bundled sample CSV end-to-end.")
+    sub.add_parser("reset", help="Delete all leads/audits/drafts (empty the database).")
 
     disc = sub.add_parser("discover", help="Discover + audit businesses for an industry.")
     disc.add_argument("industry")
@@ -137,6 +151,9 @@ def main() -> None:
 
     if args.command == "run-sample":
         raise SystemExit(asyncio.run(_run_sample()))
+
+    if args.command == "reset":
+        raise SystemExit(asyncio.run(_reset()))
 
     if args.command == "discover":
         query = DiscoveryQuery(
